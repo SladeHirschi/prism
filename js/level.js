@@ -112,7 +112,12 @@ function blankLevel(id, name) {
     track: 'trailer_2',
     arena: { w: CANON.w, h: CANON.h },
     palette: HUES.map(h => h.name),
-    length: 80,                // beats; the level ends here
+    /* `length` is the LOOP length in beats — normally the song's own loop.
+       The chart repeats from the top when it gets here. */
+    length: 80,
+    /* the actual win condition: collect this many orbs. If it exceeds the
+       number of orbs in the chart, the chart simply loops until you do. */
+    orbGoal: 0,                // 0 = "however many orbs the chart contains"
     leadIn: 4,                 // beats of quiet before the first event may fire
     events: [],
   };
@@ -134,6 +139,8 @@ function normaliseLevel(raw) {
   }).filter(Boolean);
   L.events.sort((a, b) => a.beat - b.beat || a.type.localeCompare(b.type));
   L.length = Math.max(1, +L.length || 80);
+  const orbs = L.events.filter(e => e.type === 'orb').length;
+  L.orbGoal = Math.max(1, +L.orbGoal || orbs || 1);
   return L;
 }
 
@@ -217,21 +224,28 @@ class LevelRunner {
     })).sort((a, b) => a.spawn - b.spawn);
     this.next = 0;
     this.beat = 0;
-    this.finished = false;
+    this.loop = 0;
+    /* an event telegraphing before beat 0 still has to fire at the top */
+    for (const q of this.queue) q.spawn = Math.max(0, q.spawn);
   }
 
   get length() { return this.level.length; }
-  get percent() { return clamp01(this.beat / this.length) * 100; }
+  get orbGoal() { return this.level.orbGoal; }
 
-  reset() { this.next = 0; this.beat = 0; this.finished = false; }
+  reset() { this.next = 0; this.beat = 0; this.loop = 0; }
 
+  /* The chart is a loop. It keeps playing — and repeating — until the player
+     has collected enough orbs, which is what actually ends the level. */
   update(beatNow) {
     this.beat = beatNow;
-    while (this.next < this.queue.length && this.queue[this.next].spawn <= beatNow) {
+    const len = this.length;
+    const loop = Math.floor(beatNow / len);
+    const local = beatNow - loop * len;
+    if (loop !== this.loop) { this.loop = loop; this.next = 0; }
+    while (this.next < this.queue.length && this.queue[this.next].spawn <= local) {
       this.fire(this.queue[this.next].ev, beatNow);
       this.next++;
     }
-    if (!this.finished && beatNow >= this.length) { this.finished = true; return 'end'; }
     return null;
   }
 

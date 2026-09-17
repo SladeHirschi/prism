@@ -31,12 +31,18 @@ in a level file is tied to this engine.
   "arena":   { "w": 1280, "h": 800 },
   "palette": ["RED","ORANGE","YELLOW","GREEN","BLUE","PURPLE"],
   "length":  78,
+  "orbGoal": 9,
   "leadIn":  4,
   "events":  [ ... ]
 }
 ```
 
-`length` is where the level ends, in beats — reaching it is the win condition.
+**`orbGoal` is the win condition** — collect that many orbs and the level is
+cleared. `length` is the LOOP length in beats, normally the song's own loop:
+when the playhead reaches it the chart restarts from the top. So a short chart
+with a high `orbGoal` simply repeats until the player has collected enough,
+and a chart whose `orbGoal` equals its orb count plays through exactly once.
+
 `leadIn` is quiet beats before the chart starts. `arena` is the canonical size
 the level was authored against; it is informational, since geometry is
 normalised. `track` names a row in the track table (id, file, bpm, offset).
@@ -95,8 +101,9 @@ Only one orb is live at a time — a second would make "miss it and die" unfair.
    the hazard's, or the player is dashing.
 2. An orb can only be collected while the player's colour matches it.
 3. An orb that expires ends the run.
-4. Reaching `length` beats clears the level.
-5. Completion percentage is `current_beat / length`, and the best is kept.
+4. Collecting `orbGoal` orbs clears the level; the chart loops at `length`
+   beats until then.
+5. Completion percentage is `orbs_collected / orbGoal`, and the best is kept.
 
 ## Storage
 

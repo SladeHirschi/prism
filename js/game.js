@@ -410,6 +410,10 @@ class Game {
     this.failReason = '';
 
     this.music = new Music(ui.music);
+    this.editor = new Editor(this);
+    this.editorColor = 0;
+    this.testing = false;
+    this._bindEditor();
     /* one clock drives the level: the soundtrack if we have it, the
        procedural pulse if not, and a plain timer if there is no audio at all */
     this.music.onBeat = (i) => this.director.onBeat(i);
@@ -439,6 +443,84 @@ class Game {
     this._vig = null;
   }
 
+  /* -------------------------------------------------------------- editor */
+  _bindEditor() {
+    const U = this.ui, ed = this.editor, cv = this.canvas;
+    const pos = (e) => {
+      const r = cv.getBoundingClientRect();
+      return { x: e.clientX - r.left, y: e.clientY - r.top };
+    };
+    cv.addEventListener('mousedown', (e) => {
+      if (this.state !== 'edit') return;
+      const p = pos(e); ed.onDown(p.x, p.y, e.button); e.preventDefault();
+    });
+    window.addEventListener('mousemove', (e) => {
+      if (this.state !== 'edit') return;
+      const p = pos(e); ed.onMove(p.x, p.y);
+    });
+    window.addEventListener('mouseup', () => { if (this.state === 'edit') ed.onUp(); });
+    cv.addEventListener('wheel', (e) => {
+      if (this.state !== 'edit') return;
+      const p = pos(e); ed.onWheel(e.deltaY, p.x, p.y); e.preventDefault();
+    }, { passive: false });
+    window.addEventListener('keydown', (e) => {
+      if (this.state !== 'edit') return;
+      const t = e.target;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA')) return;
+      if (ed.onKey(e.code, e.shiftKey, e.metaKey || e.ctrlKey)) e.preventDefault();
+    });
+
+    U.edPlay.addEventListener('click', () => ed.setPlaying(!ed.playing));
+    U.edSave.addEventListener('click', () => ed.save());
+    U.edBack.addEventListener('click', () => {
+      if (ed.dirty && !confirm('Close without saving?')) return;
+      ed.close(); this.showSelect();
+    });
+    U.edTest.addEventListener('click', () => {
+      ed.save();
+      this.testing = true;
+      ed.close();
+      this.startLevel(ed.level);
+    });
+    U.edColor.addEventListener('click', () => {
+      this.editorColor = (this.editorColor + 1) % NCOL;
+      U.edColor.style.borderColor = col(this.editorColor, 1, 1);
+      U.edColor.style.color = col(this.editorColor, 1.3, 1);
+    });
+    U.edExport.addEventListener('click', () => {
+      const code = LevelStore.encode(ed.level);
+      navigator.clipboard.writeText(code).then(
+        () => ed.flash('Code copied — paste it to a friend'),
+        () => window.prompt('Copy this level code:', code));
+    });
+    U.edImport.addEventListener('click', () => {
+      const code = window.prompt('Paste a level code:');
+      if (!code) return;
+      const lv = LevelStore.decode(code);
+      if (!lv) { ed.flash('That code did not parse'); return; }
+      ed.open(lv); ed.flash('Imported ' + lv.name);
+    });
+    U.edName.addEventListener('input', () => { ed.dirty = true; });
+    U.edLen.addEventListener('input', () => { ed.level.length = Math.max(4, +U.edLen.value || 78); ed.dirty = true; });
+    U.edGoal.addEventListener('input', () => { ed.level.orbGoal = Math.max(1, +U.edGoal.value || 1); ed.dirty = true; });
+    U.edPhrase.addEventListener('change', () => { ed.phraseLen = +U.edPhrase.value; });
+    U.edSnap.addEventListener('change', () => { ed.snap = +U.edSnap.value; });
+  }
+
+  openEditor(level) {
+    this.state = 'edit';
+    this.music.stop();
+    this.ui.select.classList.add('hidden');
+    this.ui.over.classList.add('hidden');
+    this.ui.won.classList.add('hidden');
+    this.ui.title.classList.add('hidden');
+    this.ui.howto.classList.add('hidden');
+    this.ui.hud.classList.remove('visible');
+    this.ui.prog.classList.remove('visible');
+    this.ui.editor.classList.add('on');
+    this.editor.open(level);
+  }
+
   /* ---------------------------------------------------------------- run -- */
   resetRun() {
     this.player.reset(this.arena.cx, this.arena.cy);
@@ -464,27 +546,33 @@ class Game {
     return BUILTIN_LEVELS.concat(LevelStore.allCustom());
   }
 
-  /* linear unlock: clear one to open the next */
+  /* Linear unlock, but only across the built-ins — a level you made yourself
+     is always playable, otherwise the editor would be gated behind the game. */
   unlockedCount() {
-    const ls = this.allLevels();
+    const ls = BUILTIN_LEVELS;
     let n = 1;
     for (let i = 0; i < ls.length - 1; i++) {
       if (LevelStore.progressFor(ls[i].id).cleared) n++; else break;
     }
     return Math.min(n, ls.length);
   }
+  isLocked(lv, i) {
+    return lv.author === 'built-in' && i >= this.unlockedCount();
+  }
 
   /* Start goes straight into the furthest level you have unlocked, so the
      shortest path from the rules page is still one button to playing. */
   playNext() {
-    const ls = this.allLevels();
     const n = this.unlockedCount();
-    const next = ls.slice(0, n).find(l => !LevelStore.progressFor(l.id).cleared) || ls[n - 1];
+    const open = BUILTIN_LEVELS.slice(0, n);
+    const next = open.find(l => !LevelStore.progressFor(l.id).cleared) || open[n - 1];
     this.startLevel(next);
   }
 
   showTitle() {
     this.state = 'title';
+    this.testing = false;
+    this.ui.editor.classList.remove('on');
     this.ui.select.classList.add('hidden');
     this.ui.howto.classList.add('hidden');
     this.ui.over.classList.add('hidden');
@@ -494,7 +582,9 @@ class Game {
 
   showSelect() {
     this.state = 'select';
+    this.testing = false;
     this.music.stop();
+    this.ui.editor.classList.remove('on');
     this.ui.title.classList.add('hidden');
     this.ui.howto.classList.add('hidden');
     this.ui.over.classList.add('hidden');
@@ -507,11 +597,10 @@ class Game {
     const grid = this.ui.levelGrid;
     grid.innerHTML = '';
     const ls = this.allLevels();
-    const unlocked = this.unlockedCount();
 
     ls.forEach((lv, i) => {
       const p = LevelStore.progressFor(lv.id);
-      const locked = i >= unlocked;
+      const locked = this.isLocked(lv, i);
       const card = document.createElement('button');
       card.className = 'lvl' + (p.cleared ? ' done' : '') + (locked ? ' locked' : '');
       const dots = Array.from({ length: 5 },
@@ -523,6 +612,16 @@ class Game {
         '<span>' + (locked ? '—' : p.best + '%') + '</span></div>';
       if (!locked) card.addEventListener('click', () => this.startLevel(lv));
       grid.appendChild(card);
+
+      /* your own levels can be opened in the editor */
+      if (lv.author !== 'built-in') {
+        const ed = document.createElement('button');
+        ed.className = 'btn small';
+        ed.style.cssText = 'margin:0;padding:.45em 1em;font-size:9px;';
+        ed.textContent = 'Edit ' + lv.name;
+        ed.addEventListener('click', () => this.openEditor(lv));
+        grid.appendChild(ed);
+      }
     });
 
     /* the procedural mode lives here too, always available */
@@ -534,6 +633,26 @@ class Game {
       '<div class="meta"><span>PROCEDURAL</span><span>' + this.best + ' / ' + TOTAL_ORBS + '</span></div>';
     card.addEventListener('click', () => this.start());
     grid.appendChild(card);
+
+    const nw = document.createElement('button');
+    nw.className = 'lvl endless';
+    nw.innerHTML = '<span class="nm">+ NEW LEVEL</span>' +
+      '<div class="bar"><span style="width:0%"></span></div>' +
+      '<div class="meta"><span>EDITOR</span><span>BUILD ONE</span></div>';
+    nw.addEventListener('click', () => this.openEditor(null));
+    grid.appendChild(nw);
+  }
+
+  /* how far through a level you are, measured in the thing you actually do */
+  levelPercent() {
+    if (!this.runner) return 0;
+    return clamp01(this.collected / this.runner.orbGoal) * 100;
+  }
+
+  /* back to wherever you came from */
+  leaveRun() {
+    if (this.testing) { this.testing = false; this.openEditor(this.editor.level); }
+    else this.showSelect();
   }
 
   replay() {
@@ -570,6 +689,7 @@ class Game {
   }
 
   _begin() {
+    this.ui.editor.classList.remove('on');
     this.audio.init(); this.audio.resume();
     this.ui.howto.classList.add('hidden');
     this.ui.select.classList.add('hidden');
@@ -636,6 +756,13 @@ class Game {
       const mb = this.music.beatFloat();
       if (mb !== null) { this.songBeat = mb; this.secPerBeat = this.music.spb; }
       else this.songBeat += (rdt * this.timeScale) / this.secPerBeat;
+    }
+
+    if (this.state === 'edit') {
+      this.editor.update(rdt);
+      this.editor.draw(this.ctx);
+      this.input.endFrame();
+      return;
     }
 
     if (!this.paused) {
@@ -735,9 +862,7 @@ class Game {
     }
 
     /* ---- the chart ---- */
-    if (this.mode === 'level' && this.runner) {
-      if (this.runner.update(this.songBeat) === 'end') { this.win(); return; }
-    }
+    if (this.mode === 'level' && this.runner) this.runner.update(this.songBeat);
 
     /* ---- orb ---- */
     if (this.orb) {
@@ -842,6 +967,9 @@ class Game {
     if (this.mode === 'arcade') {
       if (this.collected >= TOTAL_ORBS) { this.win(); return; }
       this.spawnOrb();
+    } else if (this.collected >= this.runner.orbGoal) {
+      this.win();
+      return;
     }
   }
 
@@ -880,12 +1008,13 @@ class Game {
     if (this.deathT > 1.5 && this.state === 'dying') {
       this.state = 'over';
       if (this.mode === 'level') {
-        const pc = this.runner ? this.runner.percent : 0;
+        const pc = this.levelPercent();
         const p = LevelStore.record(this.level.id, pc, false);
         this.ui.overCount.textContent = Math.round(pc) + '%';
         this.ui.overBest.textContent = p.best + '%';
         this.ui.overCountLabel.textContent = 'Reached';
         this.ui.overBestLabel.textContent = 'Best';
+        this.ui.overLevelsBtn.textContent = this.testing ? 'Back to editor' : 'Levels';
       } else {
         this.best = Math.max(this.best, this.collected);
         storageSet('prism.best', this.best);
@@ -934,6 +1063,7 @@ class Game {
         this.ui.wonCountLabel.textContent = 'All orbs';
       }
       this.ui.wonTime.textContent = (this.realTime || 0).toFixed(1) + 's';
+      this.ui.wonLevelsBtn.textContent = this.testing ? 'Back to editor' : 'Levels';
       this.ui.won.classList.remove('hidden');
     }
   }
@@ -1070,8 +1200,8 @@ class Game {
     this.ui.selBackBtn.addEventListener('click', () => this.showTitle());
     this.ui.retryBtn.addEventListener('click', () => this.replay());
     this.ui.againBtn.addEventListener('click', () => this.replay());
-    this.ui.overLevelsBtn.addEventListener('click', () => this.showSelect());
-    this.ui.wonLevelsBtn.addEventListener('click', () => this.showSelect());
+    this.ui.overLevelsBtn.addEventListener('click', () => this.leaveRun());
+    this.ui.wonLevelsBtn.addEventListener('click', () => this.leaveRun());
     this.ui.resumeBtn.addEventListener('click', () => this.pause(false));
     this.ui.bestLabel.textContent = this.best + ' / ' + TOTAL_ORBS;
   }
@@ -1085,9 +1215,9 @@ class Game {
     const showProg = inPlay && this.mode === 'level' && this.runner;
     U.prog.classList.toggle('visible', showProg);
     if (showProg) {
-      const pc = this.runner.percent;
-      U.progFill.style.width = pc.toFixed(1) + '%';
-      const t = Math.round(pc) + '%';
+      const goal = this.runner.orbGoal;
+      U.progFill.style.width = this.levelPercent().toFixed(1) + '%';
+      const t = this.collected + ' / ' + goal + ' ORBS';
       if (this._pp !== t) { this._pp = t; U.progPct.textContent = t; }
       if (this._pn !== this.level.name) { this._pn = this.level.name; U.progName.textContent = this.level.name; }
     }

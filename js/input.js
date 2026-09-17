@@ -26,7 +26,15 @@ class InputManager {
     const stop = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'Tab',
       'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'KeyR', 'Enter',
       'ShiftLeft', 'ShiftRight', 'Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6']);
+    const typing = (e) => {
+      const t = e.target;
+      return t && (t.tagName === 'INPUT' || t.tagName === 'SELECT' ||
+        t.tagName === 'TEXTAREA' || t.isContentEditable);
+    };
     window.addEventListener('keydown', e => {
+      /* the editor has real form fields — typing in them must not be
+         swallowed by the game's key handling */
+      if (typing(e)) return;
       if (stop.has(e.code)) e.preventDefault();
       if (e.repeat) { this._touch('keyboard'); return; }
       this.keys.add(e.code); this.pressed.add(e.code);
