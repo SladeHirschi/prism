@@ -1,28 +1,31 @@
-# PRISM level format v1
+# PRISM level format v2
 
-A level is plain JSON. It contains no code, no pixels and no frame counts, so
-the same file plays in the JS prototype and in a Godot port without conversion.
+A level is plain JSON: an ordered list of **steps**, played start to end. Each
+step is one orb plus the hazards that arrive while the player goes and gets it.
+Collect the orb and the next step begins. Clear every step and the level is done.
+
+There is no tempo and no beat grid. Delays are plain seconds measured from the
+moment a step starts. Music is a backdrop; nothing is synced to it.
 
 ## Units — the part that matters for porting
 
-| Quantity  | Unit                                   | Import as                       |
-| --------- | -------------------------------------- | ------------------------------- |
-| Time      | **beats** (float, sub-beats allowed)   | `beat * 60.0 / bpm` seconds     |
-| Position  | **0..1 of the arena**                  | `x * arena.x`, `y * arena.y`    |
-| Size/speed| **fraction of arena WIDTH**            | `v * arena.x` (per second)      |
-| Angle     | **degrees**, clockwise, 0 = +X         | `deg_to_rad(a)`                 |
-| Colour    | **index into `palette`**               | your own colour table           |
+| Quantity   | Unit                                  | Import as                      |
+| ---------- | ------------------------------------- | ------------------------------ |
+| Time       | **seconds**                           | as-is                          |
+| Position   | **0..1 of the arena**                 | `x * arena.x`, `y * arena.y`   |
+| Size/speed | **fraction of arena WIDTH** (per sec) | `v * arena.x`                  |
+| Angle      | **degrees**, clockwise, 0 = +X        | `deg_to_rad(a)`                |
+| Colour     | **index into `palette`**              | your own colour table          |
 
-Time is in beats so a chart survives a tempo change and any frame rate.
-Positions are normalised so it survives any resolution or arena size. Nothing
-in a level file is tied to this engine.
+Nothing refers to a class, a pixel or a frame, so the same file plays here and
+in a Godot port without conversion.
 
-## Top level
+## Shape
 
 ```json
 {
   "format": "prism.level",
-  "version": 1,
+  "version": 2,
   "id": "first-light",
   "name": "FIRST LIGHT",
   "author": "",
@@ -30,85 +33,82 @@ in a level file is tied to this engine.
   "track": "trailer_2",
   "arena":   { "w": 1280, "h": 800 },
   "palette": ["RED","ORANGE","YELLOW","GREEN","BLUE","PURPLE"],
-  "length":  78,
-  "orbGoal": 9,
-  "leadIn":  4,
-  "events":  [ ... ]
+  "steps": [
+    {
+      "orb": { "color": 4, "x": 0.5, "y": 0.34, "life": 8 },
+      "hazards": [
+        { "type": "wave", "color": 4, "angle": 0, "speed": 0.2,
+          "thickness": 0.11, "delay": 0.6, "warn": 1.6 }
+      ]
+    }
+  ]
 }
 ```
 
-**`orbGoal` is the win condition** — collect that many orbs and the level is
-cleared. `length` is the LOOP length in beats, normally the song's own loop:
-when the playhead reaches it the chart restarts from the top. So a short chart
-with a high `orbGoal` simply repeats until the player has collected enough,
-and a chart whose `orbGoal` equals its orb count plays through exactly once.
+`arena` is the canonical size the level was authored against; it is
+informational, since all geometry is normalised. `track` names a row in the
+track table.
 
-`leadIn` is quiet beats before the chart starts. `arena` is the canonical size
-the level was authored against; it is informational, since geometry is
-normalised. `track` names a row in the track table (id, file, bpm, offset).
+## Orb
 
-## Events
+| field | default | notes |
+| --- | --- | --- |
+| `color` | 0 | must be worn to collect it |
+| `x`, `y` | 0.5 | |
+| `life` | 6 | seconds before it fades — **letting it fade ends the run** |
 
-Every event has `type` and `beat`. **`beat` is when the hazard becomes lethal**,
-not when it appears — it is spawned `telegraph` beats earlier so that it goes
-live exactly on the beat. That is what makes a chart feel locked to the music,
-and any port must preserve it.
+## Hazards
+
+Every hazard has `delay` (seconds after its step begins) and `warn` (seconds it
+telegraphs before it turns lethal).
 
 ### `wave` — a band sweeping the whole arena
 | field | default | notes |
 | --- | --- | --- |
-| `color` | 0 | palette index |
-| `angle` | 0 | direction of travel, degrees |
+| `color` | 0 | |
+| `angle` | 0 | direction of travel |
+| `speed` | 0.26 | arena widths / second |
 | `thickness` | 0.11 | × arena width |
-| `speed` | 0.24 | arena widths / second |
-| `telegraph` | 2 | beats of warning |
 
 ### `shard` — a shape thrown in a straight line
 | field | default | notes |
 | --- | --- | --- |
 | `color` | 0 | |
-| `x`, `y` | 0.5, -0.06 | spawn point; outside 0..1 is fine |
-| `angle` | 90 | degrees |
-| `aim` | `"fixed"` | `"player"` re-aims at the player when it spawns |
-| `speed` | 0.33 | arena widths / second |
+| `x`, `y` | 0.5, −0.06 | spawn point; outside 0..1 is fine |
+| `angle` | 90 | |
+| `speed` | 0.36 | |
 | `radius` | 0.012 | × arena width |
 | `sides` | 3 | 3 = triangle, 4 = diamond |
-| `telegraph` | 1.5 | |
+| `aim` | `"fixed"` | `"player"` re-aims at the player as it spawns |
 
 ### `bloom` — a seed that opens into a ring of shards
 | field | default | notes |
 | --- | --- | --- |
 | `color` | 0 | |
-| `color2` | -1 | −1 = single colour; otherwise petals alternate |
-| `x`, `y` | 0.5, 0.5 | |
-| `petals` | 8 | |
-| `speed` | 0.24 | |
-| `spin` | 0 | petal ring offset, degrees |
-| `telegraph` | 2 | |
-
-### `orb` — a pickup
-| field | default | notes |
-| --- | --- | --- |
-| `color` | 0 | must be worn to collect |
-| `x`, `y` | 0.5, 0.5 | |
-| `life` | 8 | beats before it fades; letting it fade ends the run |
-
-Only one orb is live at a time — a second would make "miss it and die" unfair.
+| `color2` | −1 | −1 = single colour; otherwise petals alternate |
+| `x`, `y` | 0.5 | |
+| `speed` | 0.26 | |
+| `petals` | 9 | |
+| `spin` | 0 | ring offset, degrees |
 
 ## Rules a port must reproduce
 
 1. Contact with a hazard is lethal **unless** the player's colour index equals
    the hazard's, or the player is dashing.
 2. An orb can only be collected while the player's colour matches it.
-3. An orb that expires ends the run.
-4. Collecting `orbGoal` orbs clears the level; the chart loops at `length`
-   beats until then.
-5. Completion percentage is `orbs_collected / orbGoal`, and the best is kept.
+3. An orb that fades ends the run.
+4. Collecting a step's orb immediately begins the next step.
+5. **Hazards already queued are not cancelled when a step advances.** A player
+   who takes the orb quickly still meets everything the level was built with —
+   it simply arrives while they are on the next orb. Cancelling would let good
+   play quietly delete the level.
+6. Clearing the last step clears the level. Completion percentage is
+   `steps_cleared / step_count`, and the best is kept.
 
 ## Storage
 
-Custom levels live in `localStorage` under `prism.levels`; progress under
-`prism.progress` as `{ levelId: { best, cleared, attempts } }`. Both are
-behind `LevelStore` in `js/level.js`, so swapping to files or a server is a
-one-object change. `LevelStore.encode` / `decode` produce a paste-able base64
-string of a level for sharing.
+Custom levels live in `localStorage` under `prism.levels2`; progress under
+`prism.progress2` as `{ levelId: { best, cleared, attempts } }`. Both sit behind
+`LevelStore` in `js/level.js`, so swapping to files or a server touches one
+object. `LevelStore.encode` / `decode` produce a paste-able base64 string of a
+level for sharing.

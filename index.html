@@ -228,7 +228,7 @@
   .edaction.go{border-color:rgba(143,201,164,.55);color:#cfeedc;}
 
   #edTools,#edInspect{
-    position:absolute;top:46px;bottom:0;width:196px;pointer-events:auto;
+    position:absolute;top:46px;bottom:132px;width:196px;pointer-events:auto;
     overflow-y:auto;padding:10px;
     background:rgba(18,19,23,.9);
     font-family:var(--mono);
@@ -268,6 +268,7 @@
     border:1px solid rgba(238,241,246,.2);color:#8c93a4;font-size:9px;line-height:1;
   }
   .edsw.on{outline:2px solid #eef1f6;outline-offset:1px;}
+  .edsw.big{width:25px;height:25px;border-radius:5px;}
   .edtip{font-size:9px;line-height:1.7;color:#6e7486;letter-spacing:.06em;}
   #edHint{
     position:absolute;left:206px;right:206px;bottom:138px;text-align:center;
@@ -351,20 +352,8 @@
   <div id="editor">
     <div id="edBar">
       <input id="edName" type="text" value="NEW LEVEL" title="level name">
-      <span>ORBS</span><input id="edGoal" type="number" min="1" max="99" value="8" title="orbs needed to clear">
-      <span>LOOP</span><input id="edLen" type="number" min="4" max="512" value="78" title="loop length in beats">
       <span>DIFF</span><input id="edDiff" type="number" min="1" max="5" value="1">
-      <span>PHRASE</span>
-      <select id="edPhrase"><option>4</option><option selected>8</option><option>16</option></select>
-      <span>SNAP</span>
-      <select id="edSnap">
-        <option value="1">1</option><option value="0.5" selected>1/2</option>
-        <option value="0.25">1/4</option><option value="0">off</option>
-      </select>
-      <button class="edaction" id="edPlay">Play</button>
-      <b id="edBeat">0.00</b><span id="edBar2">bar 1</span>
       <span class="sp"></span>
-      <button class="edaction" id="edColor">Colour</button>
       <button class="edaction go" id="edTest">Test</button>
       <button class="edaction" id="edSave">Save</button>
       <button class="edaction" id="edExport">Copy code</button>
@@ -422,7 +411,6 @@
 <script src="js/hazards.js"></script>
 <script src="js/level.js"></script>
 <script src="js/levels.js"></script>
-<script src="js/patterns.js"></script>
 <script src="js/editor.js"></script>
 <script src="js/game.js"></script>
 <script>
@@ -434,11 +422,9 @@
     howto: $('howto'), startBtn: $('startBtn'), toLevelsBtn: $('toLevelsBtn'),
     select: $('select'), levelGrid: $('levelGrid'), selBackBtn: $('selBackBtn'),
     prog: $('prog'), progFill: $('progFill'), progName: $('progName'), progPct: $('progPct'),
-    editor: $('editor'), edName: $('edName'), edLen: $('edLen'), edDiff: $('edDiff'),
-    edPhrase: $('edPhrase'), edSnap: $('edSnap'), edPlay: $('edPlay'), edBeat: $('edBeat'),
-    edGoal: $('edGoal'),
-    edBar: $('edBar2'), edTools: $('edTools'), edInspect: $('edInspect'),
-    edHint: $('edHint'), edStatus: $('edStatus'), edColor: $('edColor'),
+    editor: $('editor'), edName: $('edName'), edDiff: $('edDiff'),
+    edTools: $('edTools'), edInspect: $('edInspect'),
+    edHint: $('edHint'), edStatus: $('edStatus'),
     edTest: $('edTest'), edSave: $('edSave'), edExport: $('edExport'),
     edImport: $('edImport'), edBack: $('edBack'),
     pause: $('pause'), resumeBtn: $('resumeBtn'),

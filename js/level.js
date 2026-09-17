@@ -1,146 +1,138 @@
 'use strict';
 /* ============================================================================
-   PRISM — level.js
+   PRISM — level.js   (format v2, step based)
 
-   The level format, its storage, and the runner that plays one back.
+   A level is a straight sequence of STEPS, played start to end. Each step is
+   one orb plus the hazards that arrive while you go and get it. Collect the
+   orb and the next step begins. Clear every step and the level is done.
 
-   PORTABILITY NOTE — this format is deliberately engine-agnostic, because the
-   real build is going to Godot. Nothing in a level file refers to a class, a
-   function, a pixel or a frame. Specifically:
+   There is no tempo and no beat grid: delays are plain seconds measured from
+   the moment a step starts. The music is a backdrop, nothing is synced to it.
 
-     · time is in BEATS, never seconds or frames, so a chart survives any
-       tempo and any frame rate
-     · positions are NORMALISED 0..1 of the arena, so they survive any
-       resolution or arena size
-     · magnitudes (thickness, speed, radius) are normalised to arena WIDTH
-     · colours are indices into a named palette that travels with the file
+   PORTABILITY — this is engine-agnostic on purpose, because the real build is
+   going to Godot. Nothing here names a class, a pixel or a frame:
+     · time is SECONDS
+     · positions are NORMALISED 0..1 of the arena
+     · sizes and speeds are fractions of arena WIDTH (per second for speeds)
+     · colours are indices into a palette carried in the file
      · angles are degrees, clockwise, 0 = +X
-     · every type is a plain string with a documented parameter set
-
-   A Godot importer is then: parse JSON -> for each event, instance a scene and
-   multiply the normalised numbers by the arena size. See LEVEL_FORMAT.md.
    ========================================================================== */
 
 const LEVEL_FORMAT = 'prism.level';
-const LEVEL_VERSION = 1;
-
-/* Canonical arena the editor authors against. Runtime may use any size; all
-   stored geometry is normalised so it scales cleanly. */
+const LEVEL_VERSION = 2;
 const CANON = { w: 1280, h: 800 };
 
 /* ---------------------------------------------------------------- tracks --
-   One entry per piece of music. Adding a song is a data change, nothing more:
-   drop the file in audio/, measure its tempo, add a row. */
+   Music is a backdrop only. Adding a song is a data change: drop the file in
+   audio/ and add a row. */
 const TRACKS = {
   'trailer_2': {
-    id: 'trailer_2',
-    title: 'Trailer Draft 2',
+    id: 'trailer_2', title: 'Trailer Draft 2',
     src: 'audio/trailer_song_2_draft.mp3',
-    bpm: 130.0,
-    offset: 0.4267,
-    beats: 80,
+    /* levels ignore these — only the procedural arcade mode spawns on a beat */
+    bpm: 130.0, offset: 0.4267,
   },
 };
 function getTrack(id) { return TRACKS[id] || TRACKS['trailer_2']; }
 
-/* ------------------------------------------------------------ event spec --
-   Each entry lists the parameters an event of that type carries, with the
-   default used when a field is absent. This table is the single source of
-   truth for the editor's inspector, the validator and the documentation. */
-const EVENT_SPEC = {
-  /* a band that sweeps the whole arena */
+/* ------------------------------------------------------------ hazard spec --
+   The editor's inspector, the validator and the docs all read this table.
+   `drag` says what a drag in the arena controls when you place one. */
+const HAZ_SPEC = {
   wave: {
-    label: 'Wave',
+    label: 'Wave', drag: 'direction',
+    speedRange: [0.08, 0.7],
     fields: {
       color: { def: 0, type: 'color' },
-      angle: { def: 0, type: 'angle', min: 0, max: 360 },        // degrees of travel
-      thickness: { def: 0.11, type: 'norm', min: 0.03, max: 0.4 },  // × arena width
-      speed: { def: 0.24, type: 'norm', min: 0.06, max: 0.9 },   // arena widths / second
-      telegraph: { def: 2, type: 'beats', min: 0.25, max: 16 },
+      angle: { def: 0, type: 'angle', min: 0, max: 360 },
+      speed: { def: 0.26, type: 'norm', min: 0.06, max: 0.8 },
+      thickness: { def: 0.11, type: 'norm', min: 0.03, max: 0.4 },
+      delay: { def: 0, type: 'sec', min: 0, max: 20 },
+      warn: { def: 1.1, type: 'sec', min: 0.2, max: 6 },
     },
   },
-  /* a shape hurled across the arena in a straight line */
   shard: {
-    label: 'Shard',
+    label: 'Shard', drag: 'from-point',
+    speedRange: [0.12, 1.1],
     fields: {
       color: { def: 0, type: 'color' },
-      x: { def: 0.5, type: 'unit' },        // spawn point, 0..1 of arena
-      y: { def: -0.06, type: 'unit' },      // outside the arena is fine
+      x: { def: 0.5, type: 'unit' },
+      y: { def: -0.06, type: 'unit' },
       angle: { def: 90, type: 'angle', min: 0, max: 360 },
-      aim: { def: 'fixed', type: 'enum', values: ['fixed', 'player'] },
-      speed: { def: 0.33, type: 'norm', min: 0.08, max: 1.2 },
+      speed: { def: 0.36, type: 'norm', min: 0.08, max: 1.2 },
       radius: { def: 0.012, type: 'norm', min: 0.004, max: 0.05 },
       sides: { def: 3, type: 'int', min: 3, max: 6 },
-      telegraph: { def: 1.5, type: 'beats', min: 0.25, max: 16 },
+      aim: { def: 'fixed', type: 'enum', values: ['fixed', 'player'] },
+      delay: { def: 0, type: 'sec', min: 0, max: 20 },
+      warn: { def: 0.8, type: 'sec', min: 0.2, max: 6 },
     },
   },
-  /* a seed that opens into a ring of shards */
   bloom: {
-    label: 'Bloom',
+    label: 'Bloom', drag: 'from-point',
+    speedRange: [0.1, 0.6],
     fields: {
       color: { def: 0, type: 'color' },
-      color2: { def: -1, type: 'color2' },    // -1 = single colour
+      color2: { def: -1, type: 'color2' },
       x: { def: 0.5, type: 'unit' },
       y: { def: 0.5, type: 'unit' },
-      petals: { def: 8, type: 'int', min: 3, max: 18 },
-      speed: { def: 0.24, type: 'norm', min: 0.08, max: 0.8 },
-      spin: { def: 0, type: 'angle', min: 0, max: 360 },          // petal offset
-      telegraph: { def: 2, type: 'beats', min: 0.25, max: 16 },
-    },
-  },
-  /* a pickup. Miss one and the run ends, same as the arcade mode. */
-  orb: {
-    label: 'Orb',
-    fields: {
-      color: { def: 0, type: 'color' },
-      x: { def: 0.5, type: 'unit' },
-      y: { def: 0.5, type: 'unit' },
-      life: { def: 8, type: 'beats', min: 1, max: 64 },           // how long before it fades
+      speed: { def: 0.26, type: 'norm', min: 0.08, max: 0.7 },
+      petals: { def: 9, type: 'int', min: 3, max: 18 },
+      spin: { def: 0, type: 'angle', min: 0, max: 360 },
+      delay: { def: 0, type: 'sec', min: 0, max: 20 },
+      warn: { def: 1.1, type: 'sec', min: 0.2, max: 6 },
     },
   },
 };
 
+const ORB_SPEC = {
+  fields: {
+    color: { def: 0, type: 'color' },
+    x: { def: 0.5, type: 'unit' },
+    y: { def: 0.5, type: 'unit' },
+    life: { def: 6, type: 'sec', min: 1.5, max: 30 },
+  },
+};
+
 /* -------------------------------------------------------------- defaults -- */
+function blankStep() {
+  return {
+    orb: { color: 0, x: 0.5, y: 0.5, life: 6 },
+    hazards: [],
+  };
+}
 function blankLevel(id, name) {
   return {
-    format: LEVEL_FORMAT,
-    version: LEVEL_VERSION,
-    id: id || 'untitled',
-    name: name || 'UNTITLED',
-    author: '',
-    difficulty: 1,             // 1..5, purely presentational
-    track: 'trailer_2',
+    format: LEVEL_FORMAT, version: LEVEL_VERSION,
+    id: id || 'untitled', name: name || 'UNTITLED', author: '',
+    difficulty: 1, track: 'trailer_2',
     arena: { w: CANON.w, h: CANON.h },
     palette: HUES.map(h => h.name),
-    /* `length` is the LOOP length in beats — normally the song's own loop.
-       The chart repeats from the top when it gets here. */
-    length: 80,
-    /* the actual win condition: collect this many orbs. If it exceeds the
-       number of orbs in the chart, the chart simply loops until you do. */
-    orbGoal: 0,                // 0 = "however many orbs the chart contains"
-    leadIn: 4,                 // beats of quiet before the first event may fire
-    events: [],
+    steps: [blankStep()],
   };
 }
 
-/* Fill in missing fields and sort. Never mutates the input. */
+function fillFields(spec, raw) {
+  const out = {};
+  for (const k in spec.fields) out[k] = raw && raw[k] !== undefined ? raw[k] : spec.fields[k].def;
+  return out;
+}
+
 function normaliseLevel(raw) {
   const L = Object.assign(blankLevel(), raw || {});
   L.arena = Object.assign({ w: CANON.w, h: CANON.h }, raw && raw.arena);
   L.palette = (raw && raw.palette) || HUES.map(h => h.name);
-  L.events = ((raw && raw.events) || []).map(e => {
-    const spec = EVENT_SPEC[e.type];
-    if (!spec) return null;
-    const out = { type: e.type, beat: +e.beat || 0 };
-    for (const k in spec.fields) {
-      out[k] = e[k] === undefined ? spec.fields[k].def : e[k];
-    }
-    return out;
-  }).filter(Boolean);
-  L.events.sort((a, b) => a.beat - b.beat || a.type.localeCompare(b.type));
-  L.length = Math.max(1, +L.length || 80);
-  const orbs = L.events.filter(e => e.type === 'orb').length;
-  L.orbGoal = Math.max(1, +L.orbGoal || orbs || 1);
+  const steps = (raw && raw.steps) || [];
+  L.steps = steps.map(st => ({
+    orb: fillFields(ORB_SPEC, st && st.orb),
+    hazards: ((st && st.hazards) || []).map(h => {
+      const spec = HAZ_SPEC[h.type];
+      if (!spec) return null;
+      const o = fillFields(spec, h);
+      o.type = h.type;
+      return o;
+    }).filter(Boolean).sort((a, b) => a.delay - b.delay),
+  }));
+  if (!L.steps.length) L.steps = [blankStep()];
   return L;
 }
 
@@ -149,21 +141,20 @@ function validateLevel(raw) {
   if (!raw || typeof raw !== 'object') return { ok: false, errors: ['not an object'] };
   if (raw.format !== LEVEL_FORMAT) errs.push('format must be "' + LEVEL_FORMAT + '"');
   if (+raw.version > LEVEL_VERSION) errs.push('made by a newer version (' + raw.version + ')');
-  if (!Array.isArray(raw.events)) errs.push('events must be an array');
-  else raw.events.forEach((e, i) => {
-    if (!EVENT_SPEC[e.type]) errs.push('event ' + i + ': unknown type "' + e.type + '"');
-    if (!isFinite(e.beat)) errs.push('event ' + i + ': beat must be a number');
+  if (!Array.isArray(raw.steps)) errs.push('steps must be an array');
+  else raw.steps.forEach((st, i) => {
+    if (!st || typeof st !== 'object') { errs.push('step ' + (i + 1) + ': not an object'); return; }
+    (st.hazards || []).forEach((h, j) => {
+      if (!HAZ_SPEC[h.type]) errs.push('step ' + (i + 1) + ' hazard ' + (j + 1) + ': unknown type "' + h.type + '"');
+    });
   });
-  if (raw.track && !TRACKS[raw.track]) errs.push('unknown track "' + raw.track + '"');
   return { ok: errs.length === 0, errors: errs };
 }
 
-/* ---------------------------------------------------------------- store --
-   localStorage for now. Kept behind this object so swapping it for a file or
-   a server later touches one place. */
+/* ---------------------------------------------------------------- store -- */
 const LevelStore = {
-  KEY_LEVELS: 'prism.levels',
-  KEY_PROGRESS: 'prism.progress',
+  KEY_LEVELS: 'prism.levels2',
+  KEY_PROGRESS: 'prism.progress2',
 
   allCustom() {
     const raw = storageGet(this.KEY_LEVELS, []);
@@ -182,8 +173,7 @@ const LevelStore = {
 
   progress() { return storageGet(this.KEY_PROGRESS, {}); },
   progressFor(id) {
-    const p = this.progress()[id];
-    return p || { best: 0, cleared: false, attempts: 0 };
+    return this.progress()[id] || { best: 0, cleared: false, attempts: 0 };
   },
   record(id, percent, cleared) {
     const all = this.progress();
@@ -196,7 +186,6 @@ const LevelStore = {
     return cur;
   },
 
-  /* a paste-able string, so levels can travel between browsers later */
   encode(level) {
     try { return btoa(unescape(encodeURIComponent(JSON.stringify(level)))); }
     catch (e) { return ''; }
@@ -210,81 +199,80 @@ const LevelStore = {
 };
 
 /* --------------------------------------------------------------- runner --
-   Plays a level against a continuous beat position. Events are fired
-   telegraph-beats EARLY so that a hazard becomes lethal exactly on its beat —
-   that is what makes a chart feel locked to the music. */
+   Plays the steps in order. A step's hazards are scheduled from the moment
+   the step begins; collecting its orb moves straight on to the next. */
 class LevelRunner {
   constructor(level, game) {
     this.level = normaliseLevel(level);
     this.g = game;
-    /* pre-compute each event's spawn beat and keep them in fire order */
-    this.queue = this.level.events.map(e => ({
-      ev: e,
-      spawn: e.beat - (e.telegraph !== undefined ? e.telegraph : 0),
-    })).sort((a, b) => a.spawn - b.spawn);
-    this.next = 0;
-    this.beat = 0;
-    this.loop = 0;
-    /* an event telegraphing before beat 0 still has to fire at the top */
-    for (const q of this.queue) q.spawn = Math.max(0, q.spawn);
+    this.reset();
   }
 
-  get length() { return this.level.length; }
-  get orbGoal() { return this.level.orbGoal; }
+  get steps() { return this.level.steps; }
+  get total() { return this.level.steps.length; }
+  get percent() { return clamp01(this.done / Math.max(1, this.total)) * 100; }
 
-  reset() { this.next = 0; this.beat = 0; this.loop = 0; }
-
-  /* The chart is a loop. It keeps playing — and repeating — until the player
-     has collected enough orbs, which is what actually ends the level. */
-  update(beatNow) {
-    this.beat = beatNow;
-    const len = this.length;
-    const loop = Math.floor(beatNow / len);
-    const local = beatNow - loop * len;
-    if (loop !== this.loop) { this.loop = loop; this.next = 0; }
-    while (this.next < this.queue.length && this.queue[this.next].spawn <= local) {
-      this.fire(this.queue[this.next].ev, beatNow);
-      this.next++;
-    }
-    return null;
+  reset() {
+    this.index = -1;
+    this.done = 0;
+    this.t = 0;            // never resets — the queue works in absolute time
+    this.queue = [];
+    this.finished = false;
   }
 
-  /* normalised -> world */
+  /* world helpers */
   _x(v) { return this.g.arena.x + v * this.g.arena.w; }
   _y(v) { return this.g.arena.y + v * this.g.arena.h; }
   _n(v) { return v * this.g.arena.w; }
-  _secPerBeat() { return this.g.secPerBeat; }
 
-  fire(e, beatNow) {
+  begin() { this.nextStep(); }
+
+  nextStep() {
+    this.index++;
+    if (this.index >= this.total) { this.finished = true; return; }
+    const st = this.steps[this.index];
+    /* Queue this step's hazards in absolute time. They are NOT cancelled if
+       the player takes the orb early — a fast player still meets everything
+       the level was built with, it just arrives while they are on the next
+       orb. Otherwise playing well would quietly delete the level. */
+    for (const h of st.hazards) this.queue.push({ at: this.t + h.delay, h });
+    this.queue.sort((a, b) => a.at - b.at);
+    this.g.placeOrb(this._x(st.orb.x), this._y(st.orb.y), st.orb.color, st.orb.life);
+  }
+
+  /* called by the game when the current orb is taken */
+  orbCollected() {
+    this.done++;
+    if (this.done >= this.total) { this.finished = true; return true; }
+    this.nextStep();
+    return false;
+  }
+
+  update(dt) {
+    if (this.index < 0) return;
+    this.t += dt;
+    while (this.queue.length && this.queue[0].at <= this.t) this.spawn(this.queue.shift().h);
+  }
+
+  spawn(h) {
     const g = this.g;
-    const spb = this._secPerBeat();
-    const teleSec = Math.max(0.05, (e.telegraph || 0) * spb);
-
-    if (e.type === 'wave') {
-      g.hazards.push(new Wave(e.color, e.angle * DEG, this._n(e.thickness),
-        this._n(e.speed), teleSec));
-      g.audio.warn(e.color);
-
-    } else if (e.type === 'shard') {
-      const x = this._x(e.x), y = this._y(e.y);
-      let a = e.angle * DEG;
-      if (e.aim === 'player') a = Math.atan2(g.player.y - y, g.player.x - x);
-      const sp = this._n(e.speed);
-      g.hazards.push(new Shard(e.color, x, y, Math.cos(a) * sp, Math.sin(a) * sp,
-        this._n(e.radius), teleSec, e.sides));
-      g.audio.warn(e.color);
-
-    } else if (e.type === 'bloom') {
-      const two = e.color2 >= 0;
-      const b = new Bloom(e.color, this._x(e.x), this._y(e.y), e.petals,
-        this._n(e.speed), teleSec, two);
-      if (two) b.ci2 = e.color2;
-      b.offset = (e.spin || 0) * DEG;
+    const warn = Math.max(0.12, h.warn || 0.8);
+    if (h.type === 'wave') {
+      g.hazards.push(new Wave(h.color, h.angle * DEG, this._n(h.thickness), this._n(h.speed), warn));
+    } else if (h.type === 'shard') {
+      const x = this._x(h.x), y = this._y(h.y);
+      let a = h.angle * DEG;
+      if (h.aim === 'player') a = Math.atan2(g.player.y - y, g.player.x - x);
+      const sp = this._n(h.speed);
+      g.hazards.push(new Shard(h.color, x, y, Math.cos(a) * sp, Math.sin(a) * sp,
+        this._n(h.radius), warn, h.sides));
+    } else if (h.type === 'bloom') {
+      const two = h.color2 >= 0;
+      const b = new Bloom(h.color, this._x(h.x), this._y(h.y), h.petals, this._n(h.speed), warn, two);
+      if (two) b.ci2 = h.color2;
+      b.offset = (h.spin || 0) * DEG;
       g.hazards.push(b);
-      g.audio.warn(e.color);
-
-    } else if (e.type === 'orb') {
-      g.placeOrb(this._x(e.x), this._y(e.y), e.color, (e.life || 8) * spb);
     }
+    g.audio.warn(h.color);
   }
 }

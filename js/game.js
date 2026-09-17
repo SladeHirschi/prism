@@ -452,17 +452,13 @@ class Game {
     };
     cv.addEventListener('mousedown', (e) => {
       if (this.state !== 'edit') return;
-      const p = pos(e); ed.onDown(p.x, p.y, e.button); e.preventDefault();
+      const p = pos(e); ed.onDown(p.x, p.y); e.preventDefault();
     });
     window.addEventListener('mousemove', (e) => {
       if (this.state !== 'edit') return;
       const p = pos(e); ed.onMove(p.x, p.y);
     });
     window.addEventListener('mouseup', () => { if (this.state === 'edit') ed.onUp(); });
-    cv.addEventListener('wheel', (e) => {
-      if (this.state !== 'edit') return;
-      const p = pos(e); ed.onWheel(e.deltaY, p.x, p.y); e.preventDefault();
-    }, { passive: false });
     window.addEventListener('keydown', (e) => {
       if (this.state !== 'edit') return;
       const t = e.target;
@@ -470,7 +466,6 @@ class Game {
       if (ed.onKey(e.code, e.shiftKey, e.metaKey || e.ctrlKey)) e.preventDefault();
     });
 
-    U.edPlay.addEventListener('click', () => ed.setPlaying(!ed.playing));
     U.edSave.addEventListener('click', () => ed.save());
     U.edBack.addEventListener('click', () => {
       if (ed.dirty && !confirm('Close without saving?')) return;
@@ -481,11 +476,6 @@ class Game {
       this.testing = true;
       ed.close();
       this.startLevel(ed.level);
-    });
-    U.edColor.addEventListener('click', () => {
-      this.editorColor = (this.editorColor + 1) % NCOL;
-      U.edColor.style.borderColor = col(this.editorColor, 1, 1);
-      U.edColor.style.color = col(this.editorColor, 1.3, 1);
     });
     U.edExport.addEventListener('click', () => {
       const code = LevelStore.encode(ed.level);
@@ -501,10 +491,7 @@ class Game {
       ed.open(lv); ed.flash('Imported ' + lv.name);
     });
     U.edName.addEventListener('input', () => { ed.dirty = true; });
-    U.edLen.addEventListener('input', () => { ed.level.length = Math.max(4, +U.edLen.value || 78); ed.dirty = true; });
-    U.edGoal.addEventListener('input', () => { ed.level.orbGoal = Math.max(1, +U.edGoal.value || 1); ed.dirty = true; });
-    U.edPhrase.addEventListener('change', () => { ed.phraseLen = +U.edPhrase.value; });
-    U.edSnap.addEventListener('change', () => { ed.snap = +U.edSnap.value; });
+    U.edDiff.addEventListener('input', () => { ed.dirty = true; });
   }
 
   openEditor(level) {
@@ -646,7 +633,7 @@ class Game {
   /* how far through a level you are, measured in the thing you actually do */
   levelPercent() {
     if (!this.runner) return 0;
-    return clamp01(this.collected / this.runner.orbGoal) * 100;
+    return this.runner.percent;
   }
 
   /* back to wherever you came from */
@@ -686,6 +673,7 @@ class Game {
     this.secPerBeat = this.music.spb;
     this.runner = new LevelRunner(this.level, this);
     this._begin();
+    this.runner.begin();
   }
 
   _begin() {
@@ -702,7 +690,7 @@ class Game {
     this.ui.over.classList.add('hidden');
     this.ui.won.classList.add('hidden');
     this.ui.title.classList.add('hidden');
-    this.songBeat = this.mode === 'level' ? -(this.level.leadIn || 0) : 0;
+    this.songBeat = 0;
     if (this.runner) this.runner.reset();
     if (this.mode === 'arcade') this.spawnOrb();
     this.audio.setIntensity(0.1);
@@ -861,8 +849,8 @@ class Game {
       this.fx.ring(P.x, P.y, { r0: P.half * 2.6, r1: P.half * 1.9, life: 0.28, white: 1, width: 2, alpha: 0.7 });
     }
 
-    /* ---- the chart ---- */
-    if (this.mode === 'level' && this.runner) this.runner.update(this.songBeat);
+    /* ---- the level: steps, in order, in seconds ---- */
+    if (this.mode === 'level' && this.runner) this.runner.update(dt);
 
     /* ---- orb ---- */
     if (this.orb) {
@@ -967,7 +955,7 @@ class Game {
     if (this.mode === 'arcade') {
       if (this.collected >= TOTAL_ORBS) { this.win(); return; }
       this.spawnOrb();
-    } else if (this.collected >= this.runner.orbGoal) {
+    } else if (this.runner.orbCollected()) {
       this.win();
       return;
     }
@@ -976,6 +964,10 @@ class Game {
   die(reason, silent) {
     if (this.state !== 'play') return;
     this.state = 'dying';
+    /* pin what this result is about now — starting another run while this
+       sequence plays out must not write progress against the new level */
+    this._resLevel = this.level;
+    this._resPct = this.mode === 'level' ? this.levelPercent() : 0;
     this.failReason = reason;
     this.deathT = 0;
     this.freeze = 0.14;
@@ -1007,9 +999,9 @@ class Game {
     this.vignette = damp(this.vignette, 0.95, 3, rdt);
     if (this.deathT > 1.5 && this.state === 'dying') {
       this.state = 'over';
-      if (this.mode === 'level') {
-        const pc = this.levelPercent();
-        const p = LevelStore.record(this.level.id, pc, false);
+      if (this.mode === 'level' && this._resLevel) {
+        const pc = this._resPct;
+        const p = LevelStore.record(this._resLevel.id, pc, false);
         this.ui.overCount.textContent = Math.round(pc) + '%';
         this.ui.overBest.textContent = p.best + '%';
         this.ui.overCountLabel.textContent = 'Reached';
@@ -1030,6 +1022,7 @@ class Game {
 
   win() {
     this.state = 'winning';
+    this._resLevel = this.level;
     this.deathT = 0;
     this.music.duck(0.5);
     this.audio.win();
@@ -1050,9 +1043,9 @@ class Game {
     this.timeScale = lerp(1, 0.25, Ease.outCubic(clamp01(this.deathT / 1.2)));
     if (this.deathT > 1.6 && this.state === 'winning') {
       this.state = 'won';
-      if (this.mode === 'level') {
-        LevelStore.record(this.level.id, 100, true);
-        this.ui.wonTitle.textContent = this.level.name + ' CLEARED';
+      if (this.mode === 'level' && this._resLevel) {
+        LevelStore.record(this._resLevel.id, 100, true);
+        this.ui.wonTitle.textContent = this._resLevel.name + ' CLEARED';
         this.ui.wonCount.textContent = '100%';
         this.ui.wonCountLabel.textContent = 'Complete';
       } else {
@@ -1215,9 +1208,9 @@ class Game {
     const showProg = inPlay && this.mode === 'level' && this.runner;
     U.prog.classList.toggle('visible', showProg);
     if (showProg) {
-      const goal = this.runner.orbGoal;
+      const goal = this.runner.total;
       U.progFill.style.width = this.levelPercent().toFixed(1) + '%';
-      const t = this.collected + ' / ' + goal + ' ORBS';
+      const t = this.runner.done + ' / ' + goal + ' ORBS';
       if (this._pp !== t) { this._pp = t; U.progPct.textContent = t; }
       if (this._pn !== this.level.name) { this._pn = this.level.name; U.progName.textContent = this.level.name; }
     }
