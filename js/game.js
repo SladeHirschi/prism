@@ -601,6 +601,18 @@ class Game {
     U.edDiff.addEventListener('input', () => { ed.dirty = true; });
   }
 
+  /* Clone a level into a new custom one and open it. The original is never
+     touched, so a built-in stays intact as a reference to compare against. */
+  copyToEditor(lv) {
+    const copy = JSON.parse(JSON.stringify(normaliseLevel(lv)));
+    copy.id = 'custom-' + Date.now().toString(36);
+    copy.name = (lv.name + ' COPY').slice(0, 24);
+    copy.author = '';
+    LevelStore.save(normaliseLevel(copy));
+    this.openEditor(copy);
+    this.editor.flash('Copied ' + lv.name + ' \u2014 the original is untouched');
+  }
+
   openEditor(level) {
     this.state = 'edit';
     this.music.stop();
@@ -808,12 +820,18 @@ class Game {
       if (!locked) card.addEventListener('click', () => this.startLevel(lv));
       grid.appendChild(card);
 
-      /* your own levels carry an edit button */
-      if (lv.author !== 'built-in' && !locked) {
+      /* your own levels open straight up; the built-ins can be copied and
+         pulled apart, which is the fastest way to learn how one is put
+         together without risking the original */
+      if (!locked) {
         const ed = document.createElement('span');
-        ed.className = 'editlink';
-        ed.textContent = 'EDIT';
-        ed.addEventListener('click', (e) => { e.stopPropagation(); this.openEditor(lv); });
+        const mine = lv.author !== 'built-in';
+        ed.className = 'editlink' + (mine ? '' : ' template');
+        ed.textContent = mine ? 'EDIT' : 'USE AS TEMPLATE';
+        ed.addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (mine) this.openEditor(lv); else this.copyToEditor(lv);
+        });
         card.querySelector('.body').appendChild(ed);
       }
     });
