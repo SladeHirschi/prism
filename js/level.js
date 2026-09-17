@@ -119,6 +119,8 @@ function blankLevel(id, name) {
     format: LEVEL_FORMAT, version: LEVEL_VERSION,
     id: id || 'untitled', name: name || 'UNTITLED', author: '',
     difficulty: 1, track: 'trailer_2',
+    /* how many colours the player may switch between, 2..6 */
+    colors: 6,
     arena: { w: CANON.w, h: CANON.h },
     palette: HUES.map(h => h.name),
     steps: [blankStep()],
@@ -135,14 +137,22 @@ function normaliseLevel(raw) {
   const L = Object.assign(blankLevel(), raw || {});
   L.arena = Object.assign({ w: CANON.w, h: CANON.h }, raw && raw.arena);
   L.palette = (raw && raw.palette) || HUES.map(h => h.name);
+  L.colors = clamp(Math.round(L.colors) || 6, 2, 6);
+  /* Every colour in the level is pulled into the set the player actually
+     has. Otherwise a restricted level could demand a colour nobody can
+     select, which is simply unwinnable. */
+  const SET = colorSet(L.colors);
+  const fix = (c) => nearestInSet(c, SET);
   const steps = (raw && raw.steps) || [];
   L.steps = steps.map(st => ({
-    orb: fillFields(ORB_SPEC, st && st.orb),
+    orb: (() => { const o = fillFields(ORB_SPEC, st && st.orb); o.color = fix(o.color); return o; })(),
     hazards: ((st && st.hazards) || []).map(h => {
       const spec = HAZ_SPEC[h.type];
       if (!spec) return null;
       const o = fillFields(spec, h);
       o.type = h.type;
+      o.color = fix(o.color);
+      if (o.color2 !== undefined && o.color2 >= 0) o.color2 = fix(o.color2);
       return o;
     }).filter(Boolean).sort((a, b) => a.delay - b.delay),
     star: (st && st.star) ? fillFields(STAR_SPEC, st.star) : null,

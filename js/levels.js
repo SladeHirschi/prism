@@ -39,6 +39,112 @@ function volley(color, edge, n, o) {
 
 const BUILTIN_LEVELS = [
 
+  /* ------------------------------------------------------------------ --
+     The opening run hands out one more colour at a time. Two colours is a
+     decision you can make instantly; six is a decision you have to hunt for.
+     The sets are chosen for distinctness, so the first pair is red and green
+     rather than red and orange.
+     -------------------------------------------------------------------- */
+
+  /* --- 2 colours: red, green ---------------------------------------- */
+  normaliseLevel({
+    format: LEVEL_FORMAT, version: LEVEL_VERSION,
+    id: 'pair', name: 'PAIR', author: 'built-in',
+    difficulty: 1, colors: 2, track: 'trailer_2',
+    steps: [
+      /* nothing at all: learn that you must wear the orb's colour */
+      step(orb(R, 0.5, 0.5, 10), []),
+      step(orb(G, 0.26, 0.34, 9.5), [wave(G, 0, { speed: 0.17, delay: 1.0, warn: 2.2 })]),
+      step(orb(R, 0.74, 0.66, 9.5), [wave(R, 180, { speed: 0.17, delay: 1.0, warn: 2.2 })]),
+      /* the first time the wave disagrees with the orb */
+      step(orb(G, 0.3, 0.72, 9), [wave(R, 90, { speed: 0.19, delay: 0.9, warn: 2.0 })]),
+      step(orb(R, 0.72, 0.3, 9), [wave(G, 270, { speed: 0.19, delay: 0.9, warn: 2.0 })]),
+    ],
+  }),
+
+  /* --- 3 colours: + blue -------------------------------------------- */
+  normaliseLevel({
+    format: LEVEL_FORMAT, version: LEVEL_VERSION,
+    id: 'trio', name: 'TRIO', author: 'built-in',
+    difficulty: 1, colors: 3, track: 'trailer_2',
+    steps: [
+      step(orb(B, 0.5, 0.4, 9), []),
+      step(orb(R, 0.24, 0.66, 9), [wave(B, 0, { speed: 0.19, delay: 0.9, warn: 2.0 })]),
+      step(orb(G, 0.76, 0.34, 9), [wave(R, 270, { speed: 0.2, delay: 0.8, warn: 1.9 })]),
+      /* first shards, slow and from one side */
+      step(orb(B, 0.3, 0.3, 8.5), volley(G, 'left', 2, { speed: 0.24, delay: 1.0, warn: 1.7 })),
+      step(orb(R, 0.7, 0.7, 8.5), [
+        wave(G, 135, { speed: 0.21, delay: 0.8, warn: 1.8 }),
+        ...volley(B, 'top', 2, { speed: 0.26, delay: 2.6, warn: 1.5 }),
+      ]),
+    ],
+  }),
+
+  /* --- 4 colours: + yellow ------------------------------------------ */
+  normaliseLevel({
+    format: LEVEL_FORMAT, version: LEVEL_VERSION,
+    id: 'quartet', name: 'QUARTET', author: 'built-in',
+    difficulty: 2, colors: 4, track: 'trailer_2',
+    steps: [
+      step(orb(Y, 0.5, 0.5, 8.5), [wave(Y, 0, { speed: 0.21, delay: 0.9, warn: 1.9 })]),
+      step(orb(G, 0.24, 0.3, 8.5), [wave(B, 180, { speed: 0.22, delay: 0.8, warn: 1.8 })]),
+      /* first crossing pair */
+      step(orb(R, 0.76, 0.7, 8), [
+        wave(R, 90, { speed: 0.23, delay: 0.7, warn: 1.7 }),
+        wave(R, 0, { speed: 0.23, delay: 2.2, warn: 1.7 }),
+      ]),
+      step(orb(B, 0.3, 0.68, 8), volley(Y, 'right', 3, { speed: 0.3, delay: 0.8, warn: 1.5 })),
+      step(orb(Y, 0.7, 0.32, 8), [
+        wave(G, 225, { speed: 0.24, delay: 0.7, warn: 1.6 }),
+        ...volley(R, 'bottom', 2, { speed: 0.3, delay: 2.4, warn: 1.4 }),
+      ]),
+    ],
+  }),
+
+  /* --- 5 colours: + purple ------------------------------------------ */
+  normaliseLevel({
+    format: LEVEL_FORMAT, version: LEVEL_VERSION,
+    id: 'quintet', name: 'QUINTET', author: 'built-in',
+    difficulty: 2, colors: 5, track: 'trailer_2',
+    steps: [
+      step(orb(P, 0.5, 0.36, 8), [wave(P, 90, { speed: 0.24, delay: 0.8, warn: 1.7 })]),
+      step(orb(G, 0.22, 0.6, 8), [wave(Y, 0, { speed: 0.25, delay: 0.7, warn: 1.6 })]),
+      /* first bloom, small and far from the orb */
+      step(orb(R, 0.78, 0.4, 8), [bloom(B, 0.3, 0.7, { petals: 7, speed: 0.2, delay: 1.0, warn: 1.8 })]),
+      step(orb(B, 0.3, 0.7, 7.5), volley(P, 'top', 3, { speed: 0.32, delay: 0.7, warn: 1.4 })),
+      step(orb(Y, 0.7, 0.66, 7.5), [
+        wave(R, 45, { speed: 0.26, delay: 0.6, warn: 1.5 }),
+        wave(R, 225, { speed: 0.26, delay: 2.0, warn: 1.5 }),
+      ]),
+      step(orb(G, 0.5, 0.5, 7.5), [
+        bloom(G, 0.5, 0.5, { petals: 8, speed: 0.22, delay: 1.2, warn: 1.7 }),
+        ...volley(B, 'left', 2, { speed: 0.34, delay: 3.0, warn: 1.3 }),
+      ]),
+    ],
+  }),
+
+  /* --- 6 colours: the full set -------------------------------------- */
+  normaliseLevel({
+    format: LEVEL_FORMAT, version: LEVEL_VERSION,
+    id: 'spectrum', name: 'SPECTRUM', author: 'built-in',
+    difficulty: 2, colors: 6, track: 'trailer_2',
+    steps: [
+      step(orb(O, 0.5, 0.5, 8), [wave(O, 0, { speed: 0.25, delay: 0.8, warn: 1.7 })]),
+      step(orb(P, 0.24, 0.32, 7.5), [wave(Y, 270, { speed: 0.26, delay: 0.7, warn: 1.6 })]),
+      step(orb(R, 0.76, 0.68, 7.5), volley(G, 'left', 3, { speed: 0.32, delay: 0.7, warn: 1.4 })),
+      step(orb(B, 0.3, 0.66, 7.5), [
+        wave(P, 135, { speed: 0.28, delay: 0.6, warn: 1.5 }),
+        wave(B, 315, { speed: 0.28, delay: 2.0, warn: 1.5 }),
+      ]),
+      step(orb(Y, 0.7, 0.34, 7), [bloom(O, 0.5, 0.5, { petals: 9, speed: 0.24, delay: 0.9, warn: 1.6 })]),
+      step(orb(G, 0.5, 0.74, 7), [
+        ...volley(R, 'top', 3, { speed: 0.36, delay: 0.6, warn: 1.3 }),
+        wave(Y, 180, { speed: 0.3, delay: 2.6, warn: 1.4 }),
+      ]),
+    ],
+  }),
+
+
   /* ---------------------------------------------------------------- 1 --- */
   normaliseLevel({
     format: LEVEL_FORMAT, version: LEVEL_VERSION,

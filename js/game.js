@@ -496,6 +496,10 @@ class Game {
     this.hazards = [];
     this.director = new Director(this);
     this.orb = null;
+    this.star = null;
+    this.runStars = [false, false, false];
+    this.activeColors = colorSet(6);   // which colours this level hands you
+    this.deathFocus = null;            // what to point at when you lose
 
     this.state = 'title';
     this.mode = 'arcade';        // 'arcade' = endless ramp, 'level' = a chart
@@ -646,6 +650,9 @@ class Game {
     this.orb = null;
     this.star = null;
     this.runStars = [false, false, false];
+    this.deathFocus = null;
+    this.player.colorIndex = this.activeColors[0];
+    this.player.prevColor = this.activeColors[0];
     this.audio.resetBeat();
     this.audio.setIntensity(0);
     this._fbBeat = 0; this._fbIdx = 0;
@@ -890,6 +897,7 @@ class Game {
     this.mode = 'arcade';
     this.level = null;
     this.runner = null;
+    this.activeColors = colorSet(6);
     this.music.load(getTrack('trailer_2'));
     this.secPerBeat = this.music.spb;
     this._begin();
@@ -901,6 +909,7 @@ class Game {
     this.level = normaliseLevel(level);
     this.music.load(getTrack(this.level.track));
     this.secPerBeat = this.music.spb;
+    this.activeColors = colorSet(this.level.colors);
     this.runner = new LevelRunner(this.level, this);
     this._begin();
     this.runner.begin();
@@ -1076,12 +1085,14 @@ class Game {
     }
 
     /* ---- colour ---- */
+    const AC = this.activeColors, NC = AC.length;
     if (I.stickAngle !== null) {
-      P.setColor(angleToIndex(I.stickAngle), this);
+      P.setColor(AC[angleToSlot(I.stickAngle, NC)], this);
     } else if (I.colorIndex !== null) {
-      P.setColor(I.colorIndex, this);
+      if (I.colorIndex < NC) P.setColor(AC[I.colorIndex], this);
     } else if (I.colorStep) {
-      P.setColor(P.colorIndex + I.colorStep, this);
+      const at = AC.indexOf(P.colorIndex);
+      P.setColor(AC[(((at < 0 ? 0 : at) + I.colorStep) % NC + NC) % NC], this);
     }
     if (CONFIG.dash && I.dashPressed && P.tryDash(I.moveX, I.moveY, this)) this.onDash();
 
@@ -1106,7 +1117,14 @@ class Game {
     if (this.orb) {
       const res = this.orb.update(dt, this);
       if (res === 'done') this.collect();
-      else if (res === 'expired') this.die('THE ORB FADED');
+      else if (res === 'expired') {
+        /* the one death that is genuinely hard to read, so point right at it */
+        this.deathFocus = {
+          x: this.orb.x, y: this.orb.y, ci: this.orb.ci,
+          kind: 'orb', label: 'YOU LET THIS FADE',
+        };
+        this.die('THE ORB FADED');
+      }
       else if (res === 'reject') this.rejectOrb();
     }
 
@@ -1119,6 +1137,9 @@ class Game {
       if (safe) {
         if (!h.touched) { h.touched = true; this.onPhase(h); }
       } else {
+        this.deathFocus = h instanceof Wave ? null : {
+          x: h.x, y: h.y, ci: h.ci, kind: 'shard', label: 'WRONG COLOUR',
+        };
         this.die(h instanceof Wave ? 'CAUGHT BY A WAVE' : 'HIT BY A SHARD');
         return;
       }
@@ -1383,6 +1404,7 @@ class Game {
     if (this.player.alive) this.player.draw(ctx, this);
     for (const f of this.floats) f.draw(ctx);
 
+    this._drawDeathFocus(ctx);
     ctx.restore();
 
     /* frame drawn last so nothing spills over it */
@@ -1394,6 +1416,68 @@ class Game {
 
     this._drawWheel(ctx);
     this._drawPost(ctx);
+  }
+
+  /* When you die, the world dims away and a light stays on the thing that
+     killed you. Losing to a faded orb is otherwise almost unreadable — the
+     screen is busy and the orb is simply gone. */
+  _drawDeathFocus(ctx) {
+    const f = this.deathFocus;
+    if (!f || (this.state !== 'dying' && this.state !== 'over')) return;
+    const k = clamp01(this.deathT / 0.75);
+    if (k <= 0.01) return;
+    const A = this.arena;
+    const R = lerp(300, 150, k);
+
+    /* everything except the spot goes dark */
+    const g = ctx.createRadialGradient(f.x, f.y, R * 0.35, f.x, f.y, R * 2.4);
+    g.addColorStop(0, 'rgba(8,9,11,0)');
+    g.addColorStop(0.45, 'rgba(8,9,11,' + (0.62 * k) + ')');
+    g.addColorStop(1, 'rgba(8,9,11,' + (0.88 * k) + ')');
+    ctx.fillStyle = g;
+    ctx.fillRect(A.x, A.y, A.w, A.h);
+
+    const pulse = 0.5 + 0.5 * Math.sin(this.deathT * 6);
+
+    /* rings closing on the spot */
+    for (let i = 0; i < 3; i++) {
+      const ph = ((this.deathT * 0.7 + i * 0.33) % 1);
+      ctx.strokeStyle = col(f.ci, 1.2, (1 - ph) * 0.5 * k);
+      ctx.lineWidth = 3 * (1 - ph) + 1;
+      ctx.beginPath();
+      ctx.arc(f.x, f.y, lerp(R * 1.15, 34, ph), 0, TAU);
+      ctx.stroke();
+    }
+
+    /* the ghost of the thing itself */
+    ctx.save();
+    ctx.globalAlpha = k;
+    ctx.strokeStyle = col(f.ci, 1.35, 0.55 + pulse * 0.45);
+    ctx.lineWidth = 3.5;
+    ctx.setLineDash([9, 8]);
+    ctx.lineDashOffset = -this.deathT * 26;
+    ctx.beginPath(); ctx.arc(f.x, f.y, 40, 0, TAU); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = col(f.ci, 1, 0.35 + pulse * 0.3);
+    polyPath(ctx, f.x, f.y, 20, 6, this.deathT * 0.8);
+    ctx.fill();
+    ctx.strokeStyle = col(f.ci, 1.45, 0.9);
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+
+    /* and say what happened, right next to it */
+    const ty = f.y - 74;
+    ctx.font = '700 19px ui-monospace, "SF Mono", Menlo, monospace';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.letterSpacing = '4px';
+    const w = ctx.measureText(f.label).width + 26;
+    ctx.fillStyle = 'rgba(8,9,11,.82)';
+    roundRectPath(ctx, f.x - w / 2, ty - 17, w, 34, 8);
+    ctx.fill();
+    ctx.fillStyle = col(f.ci, 1.4, 0.95);
+    ctx.fillText(f.label, f.x, ty);
+    ctx.letterSpacing = '0px';
+    ctx.restore();
   }
 
   _drawArena(ctx) {
@@ -1428,9 +1512,11 @@ class Game {
     ctx.fillStyle = 'rgba(14,15,18,0.55)';
     ctx.beginPath(); ctx.arc(0, 0, R * 1.32, 0, TAU); ctx.fill();
     const sel = this.player.colorIndex;
-    for (let i = 0; i < NCOL; i++) {
-      const a0 = indexToAngle(i) - Math.PI / NCOL;
-      const a1 = indexToAngle(i) + Math.PI / NCOL;
+    const AC = this.activeColors, NC = AC.length;
+    for (let s2 = 0; s2 < NC; s2++) {
+      const i = AC[s2];
+      const a0 = slotToAngle(s2, NC) - Math.PI / NC;
+      const a1 = slotToAngle(s2, NC) + Math.PI / NC;
       const on = i === sel;
       const rr = R * (on ? 1.12 : 0.9);
       ctx.beginPath();
@@ -1565,7 +1651,9 @@ class Game {
       if (this._pp !== t) { this._pp = t; U.progPct.textContent = t; }
       if (this._pn !== this.level.name) { this._pn = this.level.name; U.progName.textContent = this.level.name; }
     }
-    const txt = this.collected + ' / ' + TOTAL_ORBS;
+    /* a level has its own orb count; only the endless mode counts to 15 */
+    const goal = (this.mode === 'level' && this.runner) ? this.runner.total : TOTAL_ORBS;
+    const txt = (this.mode === 'level' && this.runner ? this.runner.done : this.collected) + ' / ' + goal;
     if (force || this._c !== txt) { this._c = txt; U.count.textContent = txt; }
     /* stars picked up so far this run */
     const showStars = CONFIG.stars && inPlay && this.mode === 'level' &&

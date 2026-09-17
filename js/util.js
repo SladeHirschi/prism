@@ -72,12 +72,37 @@ function colS(i, sMul, lMul, a) {
 }
 function hueOf(i) { return HUES[((i % NCOL) + NCOL) % NCOL].h; }
 
-/* the stick angle -> which of the six wedges. RED sits at the top. */
-function angleToIndex(ang) {
-  const a = ((ang + Math.PI / 2) % TAU + TAU) % TAU;   // rotate so up = 0
-  return Math.round(a / (TAU / NCOL)) % NCOL;
+/* Early levels hand out fewer colours. The sets are picked so the small ones
+   stay as far apart as possible — red and green before red and orange —
+   because two neighbouring hues is a miserable first lesson. */
+const COLOR_SETS = {
+  2: [0, 3],                 // red, green
+  3: [0, 3, 4],              // red, green, blue
+  4: [0, 2, 3, 4],           // + yellow
+  5: [0, 2, 3, 4, 5],        // + purple
+  6: [0, 1, 2, 3, 4, 5],     // everything
+};
+function colorSet(n) { return COLOR_SETS[clamp(Math.round(n) || 6, 2, 6)]; }
+
+/* the stick angle -> which wedge of however many are in play. Slot 0 is up. */
+function angleToSlot(ang, n) {
+  const a = ((ang + Math.PI / 2) % TAU + TAU) % TAU;
+  return Math.round(a / (TAU / n)) % n;
 }
-function indexToAngle(i) { return i * (TAU / NCOL) - Math.PI / 2; }
+function slotToAngle(slot, n) { return slot * (TAU / n) - Math.PI / 2; }
+
+/* nearest available colour, by hue, so a level can never ask for one the
+   player has no way to select */
+function nearestInSet(ci, set) {
+  if (set.indexOf(ci) >= 0) return ci;
+  const want = HUES[((ci % NCOL) + NCOL) % NCOL].h;
+  let best = set[0], bd = 1e9;
+  for (const k of set) {
+    const d = Math.abs(((HUES[k].h - want) % 360 + 540) % 360 - 180);
+    if (d < bd) { bd = d; best = k; }
+  }
+  return best;
+}
 
 /* --------------------------------------------------------------- drawing */
 function roundRectPath(ctx, x, y, w, h, r) {
