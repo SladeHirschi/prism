@@ -993,11 +993,7 @@ class Game {
   _keys() {
     const I = this.input;
     if (I.hit('Backquote')) this.toggleDev();
-    if (I.hit('KeyM')) {
-      const on = this.audio.toggleMute();
-      this.music.setMuted(!on);
-      document.body.classList.toggle('muted', !on);
-    }
+    if (I.hit('KeyM')) { DEV.toggle('sound'); this.applySound(); }
     if (this.state === 'title' && I.confirmPressed) this.showHowTo();
     if (this.state === 'howto' && I.confirmPressed) this.playNext();
     if (this.state === 'select' && I.padHit(1)) this.showTitle();
@@ -1464,6 +1460,14 @@ class Game {
   }
 
   /* ----------------------------------------------------------------- ui -- */
+  /* sound is remembered between visits rather than reset on every load */
+  applySound() {
+    const on = !!CONFIG.sound;
+    if (this.audio.enabled !== on) this.audio.toggleMute();
+    this.music.setMuted(!on);
+    document.body.classList.toggle('muted', !on);
+  }
+
   /* ------------------------------------------------------------- dev -- */
   buildDevPanel() {
     const U = this.ui;
@@ -1511,6 +1515,7 @@ class Game {
       this.updateHUD(true);
     };
     this.refreshDevTag();
+    this.applySound();
     this.ui.playBtn.addEventListener('click', () => this.showHowTo());
     this.ui.startBtn.addEventListener('click', () => this.playNext());
     this.ui.toLevelsBtn.addEventListener('click', () => this.showSelect());

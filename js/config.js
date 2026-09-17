@@ -17,6 +17,8 @@ const CONFIG_DEFAULTS = {
   stars: true,
   /* the dash, in case the simplest version of the game has no verbs but move */
   dash: true,
+  /* sound, remembered between visits rather than reset every load */
+  sound: true,
   /* --- the rest are for building levels, not for playing --- */
   invincible: false,      // walk a chart without dying
   noHazards: false,       // see the orb route with nothing thrown at you
@@ -26,6 +28,7 @@ const CONFIG_DEFAULTS = {
 const CONFIG_META = [
   { key: 'stars', label: 'Rainbow pickups', hint: 'three-star mastery', group: 'game' },
   { key: 'dash', label: 'Dash', hint: 'phase through anything', group: 'game' },
+  { key: 'sound', label: 'Sound', hint: 'music and effects', group: 'game' },
   { key: 'invincible', label: 'Invincible', hint: 'nothing can kill you', group: 'dev' },
   { key: 'noHazards', label: 'No hazards', hint: 'orbs only', group: 'dev' },
   { key: 'slowmo', label: 'Half speed', hint: 'read a pattern', group: 'dev' },

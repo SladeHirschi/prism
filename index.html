@@ -282,12 +282,52 @@
     font-family:var(--mono);font-size:8.5px;letter-spacing:.18em;padding:.6em 0;
   }
   #dev button:hover{background:rgba(238,241,246,.14);}
+  .devhint{
+    margin:1.9em 0 0;font-family:var(--mono);font-size:8.5px;
+    letter-spacing:.3em;color:#575d6b;
+  }
+  .devhint b{
+    color:#8c93a4;font-weight:600;border:1px solid rgba(238,241,246,.2);
+    border-radius:3px;padding:.15em .5em;margin:0 .2em;
+  }
   #devTag{
     position:absolute;left:50%;bottom:10px;transform:translateX(-50%);
     font-family:var(--mono);font-size:8px;letter-spacing:.3em;color:#7a6a4e;
     pointer-events:none;display:none;
   }
   #devTag.on{display:block;}
+
+  /* --------------------------------------------------------- options -- */
+  #options .title{font-size:clamp(22px,3.6vw,40px);letter-spacing:.24em;text-indent:.24em;
+    background:linear-gradient(100deg,#c3c9d6,#eef1f6);
+    -webkit-background-clip:text;background-clip:text;color:transparent;}
+  .opts{display:flex;flex-direction:column;gap:10px;margin-top:2.2em;width:min(420px,88vw);}
+  .opt{
+    pointer-events:auto;cursor:pointer;display:flex;align-items:center;gap:14px;
+    background:rgba(238,241,246,.04);border:1px solid rgba(238,241,246,.13);
+    border-radius:10px;padding:1em 1.15em;color:var(--ink);text-align:left;
+    font-family:var(--mono);transition:background .16s ease,border-color .16s ease;
+  }
+  .opt:hover{background:rgba(238,241,246,.08);border-color:rgba(238,241,246,.34);}
+  .opt .txt{flex:1;min-width:0;}
+  .opt .ot{display:block;font-size:11.5px;letter-spacing:.14em;font-weight:600;}
+  .opt .oh{display:block;font-size:8.5px;letter-spacing:.16em;color:var(--dim);margin-top:.4em;}
+  .opt .sw{
+    flex:0 0 auto;width:42px;height:23px;border-radius:12px;position:relative;
+    background:rgba(255,255,255,.1);box-shadow:inset 0 0 0 1px rgba(238,241,246,.14);
+    transition:background .2s ease;
+  }
+  .opt .sw i{
+    position:absolute;top:3px;left:3px;width:17px;height:17px;border-radius:50%;
+    background:#8c93a4;transition:transform .22s cubic-bezier(.3,1.4,.4,1),background .2s ease;
+  }
+  .opt.on .sw{background:rgba(143,201,164,.34);}
+  .opt.on .sw i{transform:translateX(19px);background:#9ed4ae;}
+  .opt.rainbow.on .sw{background:rgba(255,255,255,.16);}
+  .opt.rainbow.on .sw i{
+    background:conic-gradient(hsl(354,62%,60%),hsl(26,66%,58%),hsl(48,66%,58%),
+      hsl(142,46%,52%),hsl(206,58%,58%),hsl(278,44%,62%),hsl(354,62%,60%));
+  }
 
   .editlink{
     display:block;margin-top:.8em;text-align:center;
@@ -460,11 +500,13 @@
       BE THE COLOUR OF THE ORB TO TAKE IT. BE THE COLOUR OF WHAT HITS YOU, OR DIE.<br>
       <b>WASD</b> MOVE &nbsp; <b>RIGHT STICK</b> OR <b>1-6</b> OR <b>Q</b>/<b>E</b> PICK COLOUR &nbsp; <b>SPACE</b> DASH THROUGH ANYTHING
     </p>
+    <p class="devhint">PRESS <b>`</b> FOR DEV SWITCHES</p>
     <button class="btn" id="playBtn">Play</button>
     <div class="stats">
       <div class="stat"><div class="label">Best</div><div class="value" id="bestLabel">0 / 15</div></div>
     </div>
   </div>
+
 
   <!-- ------------------------------------------------------ HOW TO ---- -->
   <div id="howto" class="panel hidden">
