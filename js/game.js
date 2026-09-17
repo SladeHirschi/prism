@@ -372,6 +372,113 @@ class Orb {
   }
 }
 
+/* ==========================================================================
+   STAR — the rainbow pickup. It takes any colour, which is exactly why it is
+   drawn as every colour at once. Three per level, short-lived, and placed
+   away from the orb so going for one costs you time you may not have.
+   ========================================================================== */
+class Star {
+  constructor(x, y, life, index) {
+    this.x = x; this.y = y;
+    this.life = life; this.maxLife = life;
+    this.index = index;
+    this.t = 0; this.born = 0;
+    this.r = 21;
+    this.alive = true;
+    this.taken = false;
+    this.pullT = 0;
+    this.spark = 0;
+  }
+  get frac() { return clamp01(this.life / this.maxLife); }
+
+  update(dt, g) {
+    this.t += dt;
+    this.born = Math.min(1, this.born + dt * 3.2);
+
+    if (this.taken) {
+      this.pullT += dt;
+      const k = clamp01(this.pullT / 0.12);
+      this.x = lerp(this.px, g.player.x, Ease.inQuint(k));
+      this.y = lerp(this.py, g.player.y, Ease.inQuint(k));
+      if (k >= 1) { this.alive = false; return 'done'; }
+      return false;
+    }
+
+    this.life -= dt;
+    if (this.life <= 0) { this.alive = false; return 'expired'; }
+
+    /* it keeps throwing sparks so the eye is pulled to it */
+    this.spark -= dt;
+    if (this.spark <= 0 && g.fx.free > 40) {
+      this.spark = 0.045;
+      const a = rand(0, TAU);
+      g.fx.spawn({
+        x: this.x + Math.cos(a) * this.r * 1.5, y: this.y + Math.sin(a) * this.r * 1.5,
+        vx: Math.cos(a) * 40, vy: Math.sin(a) * 40 - 20,
+        drag: 2.4, maxLife: rand(0.35, 0.7), size: rand(2, 4), size1: 0,
+        ci: randInt(0, NCOL - 1), shape: 'dot', alpha: 0.9,
+      });
+    }
+
+    const P = g.player;
+    /* any colour works — no match required */
+    if (dist2(this.x, this.y, P.x, P.y) < (this.r + P.r + 8) * (this.r + P.r + 8)) {
+      this.taken = true; this.px = this.x; this.py = this.y; this.pullT = 0;
+    }
+    return false;
+  }
+
+  draw(ctx, g) {
+    if (!this.alive) return;
+    const b = Ease.outBack(this.born);
+    const urgent = this.frac < 0.4 ? (0.5 + 0.5 * Math.sin(this.t * 22)) : 0;
+    const beat = 1 + Math.sin(this.t * 5) * 0.07 + urgent * 0.06;
+    const r = this.r * b * beat;
+
+    /* a beacon ring that keeps expanding outward — reads from anywhere */
+    for (let i = 0; i < 2; i++) {
+      const ph = ((this.t * 1.5 + i * 0.5) % 1);
+      const rr = r * (1.6 + ph * 2.6);
+      ctx.strokeStyle = 'rgba(244,247,252,' + ((1 - ph) * 0.3) + ')';
+      ctx.lineWidth = 2.5 * (1 - ph);
+      ctx.beginPath(); ctx.arc(this.x, this.y, rr, 0, TAU); ctx.stroke();
+    }
+    softGlow(ctx, this.x, this.y, r * 5, 40, 30, 70, 0.22 + urgent * 0.16);
+
+    /* the time you have left, draining fast */
+    ctx.strokeStyle = 'rgba(244,247,252,.18)';
+    ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.arc(this.x, this.y, r * 1.85, 0, TAU); ctx.stroke();
+    ctx.strokeStyle = urgent ? 'rgba(255,220,214,' + (0.7 + urgent * 0.3) + ')' : 'rgba(244,247,252,.95)';
+    ctx.lineWidth = 4; ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, r * 1.85, -Math.PI / 2, -Math.PI / 2 + TAU * this.frac);
+    ctx.stroke();
+    ctx.lineCap = 'butt';
+
+    /* every colour at once: six wedges, turning */
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    ctx.rotate(this.t * 1.1);
+    for (let i = 0; i < NCOL; i++) {
+      const a0 = i / NCOL * TAU, a1 = (i + 1) / NCOL * TAU + 0.02;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.arc(0, 0, r, a0, a1);
+      ctx.closePath();
+      ctx.fillStyle = col(i, 1.05, 0.95);
+      ctx.fill();
+    }
+    ctx.strokeStyle = 'rgba(250,252,255,.95)';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU); ctx.stroke();
+    ctx.fillStyle = 'rgba(252,253,255,.95)';
+    polyPath(ctx, 0, 0, r * 0.4, 6, this.t * -1.6);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
 /* ========================================================================== */
 class Game {
   constructor(canvas, ui) {
@@ -523,6 +630,8 @@ class Game {
     this.flash = 0;
     this.failReason = '';
     this.orb = null;
+    this.star = null;
+    this.runStars = [false, false, false];
     this.audio.resetBeat();
     this.audio.setIntensity(0);
     this._fbBeat = 0; this._fbIdx = 0;
@@ -580,52 +689,151 @@ class Game {
     this.buildLevelSelect();
   }
 
+  /* Each card gets a drawing of its own route: the orbs in order, in their
+     colours, joined by the path the player has to run, with the rainbow
+     pickups marked. Two levels never look alike, and you can read the shape
+     of one before you commit to it. */
+  levelThumb(lv, w, h) {
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    const x = c.getContext('2d');
+    const pad = 16;
+    const g = x.createLinearGradient(0, 0, 0, h);
+    g.addColorStop(0, '#24272d'); g.addColorStop(1, '#191b20');
+    x.fillStyle = g; x.fillRect(0, 0, w, h);
+
+    x.strokeStyle = 'rgba(255,255,255,.035)';
+    x.lineWidth = 1;
+    x.beginPath();
+    for (let i = 1; i < 6; i++) { x.moveTo(i * w / 6, 0); x.lineTo(i * w / 6, h); }
+    for (let j = 1; j < 4; j++) { x.moveTo(0, j * h / 4); x.lineTo(w, j * h / 4); }
+    x.stroke();
+
+    const px = (u) => pad + clamp01(u) * (w - pad * 2);
+    const py = (v) => pad + clamp01(v) * (h - pad * 2);
+    const steps = lv.steps || [];
+
+    /* faint marks for the hazards, to show how busy it gets */
+    steps.forEach(st => (st.hazards || []).forEach(hz => {
+      if (hz.type === 'wave' || hz.x === undefined) return;
+      x.fillStyle = col(hz.color, 1, 0.3);
+      x.fillRect(px(hz.x) - 1.5, py(hz.y) - 1.5, 3, 3);
+    }));
+
+    /* the route */
+    x.strokeStyle = 'rgba(238,241,246,.24)';
+    x.lineWidth = 1.6;
+    x.setLineDash([4, 4]);
+    x.beginPath();
+    steps.forEach((st, i) => {
+      const X = px(st.orb.x), Y = py(st.orb.y);
+      if (i === 0) x.moveTo(X, Y); else x.lineTo(X, Y);
+    });
+    x.stroke();
+    x.setLineDash([]);
+
+    /* the orbs, and the rainbow pickups */
+    steps.forEach((st, i) => {
+      if (st.star) {
+        const SX = px(st.star.x), SY = py(st.star.y);
+        for (let k = 0; k < NCOL; k++) {
+          x.beginPath(); x.moveTo(SX, SY);
+          x.arc(SX, SY, 6, k / NCOL * TAU, (k + 1) / NCOL * TAU + 0.03);
+          x.closePath();
+          x.fillStyle = col(k, 1.05, 0.95); x.fill();
+        }
+        x.strokeStyle = 'rgba(250,252,255,.9)'; x.lineWidth = 1.2;
+        x.beginPath(); x.arc(SX, SY, 6, 0, TAU); x.stroke();
+      }
+      const X = px(st.orb.x), Y = py(st.orb.y);
+      x.fillStyle = col(st.orb.color, 1, 0.95);
+      x.beginPath(); x.arc(X, Y, i === 0 ? 5 : 3.6, 0, TAU); x.fill();
+      if (i === 0) {
+        x.strokeStyle = 'rgba(244,247,252,.85)'; x.lineWidth = 1.4;
+        x.beginPath(); x.arc(X, Y, 9, 0, TAU); x.stroke();
+      }
+    });
+    return c.toDataURL();
+  }
+
+  endlessThumb(w, h) {
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    const x = c.getContext('2d');
+    const g = x.createLinearGradient(0, 0, 0, h);
+    g.addColorStop(0, '#24272d'); g.addColorStop(1, '#191b20');
+    x.fillStyle = g; x.fillRect(0, 0, w, h);
+    for (let i = 0; i < NCOL; i++) {
+      x.fillStyle = col(i, 1, 0.45);
+      x.save();
+      x.translate(w * 0.5, h * 0.5);
+      x.rotate(i / NCOL * TAU);
+      x.fillRect(-w, -3, w * 2, 6);
+      x.restore();
+    }
+    x.fillStyle = 'rgba(25,27,32,.6)';
+    x.fillRect(0, 0, w, h);
+    x.fillStyle = 'rgba(244,247,252,.9)';
+    x.beginPath(); x.arc(w / 2, h / 2, 10, 0, TAU); x.fill();
+    return c.toDataURL();
+  }
+
   buildLevelSelect() {
     const grid = this.ui.levelGrid;
     grid.innerHTML = '';
     const ls = this.allLevels();
+    const names = ['', 'EASY', 'STEADY', 'TRICKY', 'HARSH', 'BRUTAL'];
 
     ls.forEach((lv, i) => {
       const p = LevelStore.progressFor(lv.id);
       const locked = this.isLocked(lv, i);
+      const nStars = lv.steps.filter(st => st.star).length;
       const card = document.createElement('button');
       card.className = 'lvl' + (p.cleared ? ' done' : '') + (locked ? ' locked' : '');
-      const dots = Array.from({ length: 5 },
-        (_, d) => '<i class="' + (d < lv.difficulty ? 'on' : '') + '"></i>').join('');
+      const d = clamp(lv.difficulty, 1, 5);
+      const stars = [0, 1, 2].map(k =>
+        '<i class="' + (p.stars[k] ? 'on' : '') + '"></i>').join('');
       card.innerHTML =
-        '<span class="nm">' + (locked ? 'LOCKED' : lv.name) + '</span>' +
-        '<div class="bar"><span style="width:' + (locked ? 0 : p.best) + '%"></span></div>' +
-        '<div class="meta"><span class="diff">' + dots + '</span>' +
-        '<span>' + (locked ? '—' : p.best + '%') + '</span></div>';
+        '<img class="thumb" src="' + this.levelThumb(lv, 320, 200) + '" alt="">' +
+        '<div class="body">' +
+        '<span class="nm">' + lv.name + '</span>' +
+        '<div class="sub"><span class="badge d' + d + '">' + names[d] + '</span>' +
+        '<span>' + lv.steps.length + ' ORBS</span>' +
+        (nStars ? '<span>' + nStars + ' ★</span>' : '') + '</div>' +
+        '<div class="bar"><span style="width:' + p.best + '%"></span></div>' +
+        '<div class="foot"><span class="stars3">' + stars + '</span>' +
+        '<span>' + p.best + '%</span></div>' +
+        '</div>' +
+        (locked ? '<div class="lockmsg"><b>●</b>CLEAR THE ONE BEFORE</div>' : '');
       if (!locked) card.addEventListener('click', () => this.startLevel(lv));
       grid.appendChild(card);
 
-      /* your own levels can be opened in the editor */
-      if (lv.author !== 'built-in') {
-        const ed = document.createElement('button');
-        ed.className = 'btn small';
-        ed.style.cssText = 'margin:0;padding:.45em 1em;font-size:9px;';
-        ed.textContent = 'Edit ' + lv.name;
-        ed.addEventListener('click', () => this.openEditor(lv));
-        grid.appendChild(ed);
+      /* your own levels carry an edit button */
+      if (lv.author !== 'built-in' && !locked) {
+        const ed = document.createElement('span');
+        ed.className = 'editlink';
+        ed.textContent = 'EDIT';
+        ed.addEventListener('click', (e) => { e.stopPropagation(); this.openEditor(lv); });
+        card.querySelector('.body').appendChild(ed);
       }
     });
 
-    /* the procedural mode lives here too, always available */
-    const card = document.createElement('button');
-    card.className = 'lvl endless';
-    card.innerHTML =
-      '<span class="nm">ENDLESS</span>' +
+    const endless = document.createElement('button');
+    endless.className = 'lvl';
+    endless.innerHTML =
+      '<img class="thumb" src="' + this.endlessThumb(320, 200) + '" alt="">' +
+      '<div class="body"><span class="nm">ENDLESS</span>' +
+      '<div class="sub"><span class="badge d3">PROCEDURAL</span><span>NO END</span></div>' +
       '<div class="bar"><span style="width:' + Math.round(this.best / TOTAL_ORBS * 100) + '%"></span></div>' +
-      '<div class="meta"><span>PROCEDURAL</span><span>' + this.best + ' / ' + TOTAL_ORBS + '</span></div>';
-    card.addEventListener('click', () => this.start());
-    grid.appendChild(card);
+      '<div class="foot"><span>BEST</span><span>' + this.best + ' / ' + TOTAL_ORBS + '</span></div></div>';
+    endless.addEventListener('click', () => this.start());
+    grid.appendChild(endless);
 
     const nw = document.createElement('button');
-    nw.className = 'lvl endless';
-    nw.innerHTML = '<span class="nm">+ NEW LEVEL</span>' +
-      '<div class="bar"><span style="width:0%"></span></div>' +
-      '<div class="meta"><span>EDITOR</span><span>BUILD ONE</span></div>';
+    nw.className = 'lvl create';
+    nw.innerHTML = '<div class="body"><span class="big">+</span>' +
+      '<span class="nm">NEW LEVEL</span>' +
+      '<div class="sub" style="justify-content:center"><span>OPEN THE EDITOR</span></div></div>';
     nw.addEventListener('click', () => this.openEditor(null));
     grid.appendChild(nw);
   }
@@ -723,6 +931,19 @@ class Game {
     this.orb = new Orb(x, y, ci, lifeSec);
     this.fx.ring(x, y, { r0: 8, r1: 80, life: 0.5, ci, width: 3, alpha: 0.6 });
     this.audio.blip(520 + ci * 30, 0.06, 0.18, 'sine');
+  }
+
+  placeStar(x, y, life, index) {
+    this.star = new Star(x, y, life, index);
+    this.audio.starAppear();
+    /* a burst outward so it catches the eye even mid-chaos */
+    for (let i = 0; i < NCOL; i++) {
+      this.fx.ring(x, y, {
+        r0: 10 + i * 4, r1: 110 + i * 22, life: 0.5 + i * 0.05,
+        ci: i, width: 3, alpha: 0.55,
+      });
+    }
+    this.floats.push(new FloatText(x, y - 54, 'GRAB IT', 2, 15, 1.0, 1));
   }
 
   /* --------------------------------------------------------------- loop -- */
@@ -852,6 +1073,14 @@ class Game {
     /* ---- the level: steps, in order, in seconds ---- */
     if (this.mode === 'level' && this.runner) this.runner.update(dt);
 
+    /* ---- the rainbow pickup ---- */
+    if (this.star) {
+      const r = this.star.update(dt, this);
+      if (r === 'done') this.takeStar();
+      else if (r === 'expired') { this.missStar(); }
+      if (this.star && !this.star.alive) this.star = null;
+    }
+
     /* ---- orb ---- */
     if (this.orb) {
       const res = this.orb.update(dt, this);
@@ -928,6 +1157,44 @@ class Game {
     this.floats.push(new FloatText(o.x, o.y - 34, 'WRONG COLOUR', o.ci, 13, 0.8));
   }
 
+  takeStar() {
+    const P = this.player, st = this.star;
+    this.runStars[st.index] = true;
+    const n = this.runStars.filter(Boolean).length;
+    this.star = null;
+
+    this.audio.starTake(n);
+    this.shake.add(0.2);
+    this.freeze = 0.06;
+    this.input.rumble(160, 0.5, 0.6);
+    this.flash = 0.26; this.flashWhite = 1;
+    P.pop = 1;
+
+    /* one burst per colour, so the reward is unmistakably the rainbow one */
+    for (let i = 0; i < NCOL; i++) {
+      this.fx.burst(P.x, P.y, 7, {
+        ci: i, speed: 380, life: 0.8, size: 5, shape: 'spark', len: 22, drag: 2.3,
+      });
+      this.fx.ring(P.x, P.y, {
+        r0: 8 + i * 5, r1: 150 + i * 30, life: 0.5 + i * 0.06,
+        ci: i, width: 3.5 - i * 0.3, alpha: 0.7,
+      });
+    }
+    this.floats.push(new FloatText(P.x, P.y - 46, '\u2605 ' + n + ' / 3', 2, 22, 1.5, 1));
+    this.ui.stars.classList.remove('pop');
+    void this.ui.stars.offsetWidth;
+    this.ui.stars.classList.add('pop');
+  }
+
+  missStar() {
+    const st = this.star;
+    if (st) {
+      this.fx.burst(st.x, st.y, 10, { white: 1, speed: 120, life: 0.5, size: 3, shape: 'dot', drag: 4 });
+      this.audio.blip(190, 0.05, 0.22, 'sine');
+    }
+    this.star = null;
+  }
+
   collect() {
     const P = this.player, o = this.orb;
     this.collected++;
@@ -1001,7 +1268,7 @@ class Game {
       this.state = 'over';
       if (this.mode === 'level' && this._resLevel) {
         const pc = this._resPct;
-        const p = LevelStore.record(this._resLevel.id, pc, false);
+        const p = LevelStore.record(this._resLevel.id, pc, false, null);
         this.ui.overCount.textContent = Math.round(pc) + '%';
         this.ui.overBest.textContent = p.best + '%';
         this.ui.overCountLabel.textContent = 'Reached';
@@ -1044,16 +1311,21 @@ class Game {
     if (this.deathT > 1.6 && this.state === 'winning') {
       this.state = 'won';
       if (this.mode === 'level' && this._resLevel) {
-        LevelStore.record(this._resLevel.id, 100, true);
-        this.ui.wonTitle.textContent = this._resLevel.name + ' CLEARED';
-        this.ui.wonCount.textContent = '100%';
-        this.ui.wonCountLabel.textContent = 'Complete';
+        const pr = LevelStore.record(this._resLevel.id, 100, true, this.runStars);
+        const got = this.runStars.filter(Boolean).length;
+        this.ui.wonTitle.textContent = got >= 3 ? 'MASTERED' : this._resLevel.name + ' CLEARED';
+        this.ui.wonCount.textContent = got + ' / 3';
+        this.ui.wonCountLabel.textContent = 'Stars this run';
+        this.ui.wonStars.innerHTML = [0, 1, 2].map(i =>
+          '<i class="' + (this.runStars[i] ? 'on' : '') + '"></i>').join('');
+        this.ui.wonStars.classList.remove('hidden');
       } else {
         this.best = Math.max(this.best, this.collected);
         storageSet('prism.best', this.best);
         this.ui.wonTitle.textContent = 'CLEARED';
         this.ui.wonCount.textContent = '15 / 15';
         this.ui.wonCountLabel.textContent = 'All orbs';
+        this.ui.wonStars.classList.add('hidden');
       }
       this.ui.wonTime.textContent = (this.realTime || 0).toFixed(1) + 's';
       this.ui.wonLevelsBtn.textContent = this.testing ? 'Back to editor' : 'Levels';
@@ -1081,6 +1353,7 @@ class Game {
     ctx.clip();
 
     if (this.orb) this.orb.draw(ctx, this);
+    if (this.star) this.star.draw(ctx, this);
     for (const h of this.hazards) if (!h.dead && h.state === 'tele') h.drawTele(ctx, this);
     for (const h of this.hazards) if (!h.dead && h.state === 'live') h.draw(ctx, this);
     this.fx.draw(ctx);
@@ -1216,6 +1489,18 @@ class Game {
     }
     const txt = this.collected + ' / ' + TOTAL_ORBS;
     if (force || this._c !== txt) { this._c = txt; U.count.textContent = txt; }
+    /* stars picked up so far this run */
+    const showStars = inPlay && this.mode === 'level' && this.runner && this.runner.starTotal > 0;
+    U.stars.classList.toggle('visible', showStars);
+    if (showStars) {
+      const key = this.runStars.join(',');
+      if (this._sk !== key) {
+        this._sk = key;
+        U.stars.innerHTML = [0, 1, 2].map(i =>
+          '<i class="' + (this.runStars[i] ? 'on' : '') + '"></i>').join('');
+      }
+    }
+
     const dk = this.player.dashReady ? 1 : 1 - this.player.dashCool / this.player.dashCd;
     U.dashFill.style.width = (dk * 100).toFixed(1) + '%';
     U.dash.classList.toggle('ready', this.player.dashReady);

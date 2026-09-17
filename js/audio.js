@@ -199,6 +199,53 @@ class AudioEngine {
     });
   }
 
+  /* a rainbow pickup surfacing: a bright rising arpeggio that cuts through */
+  starAppear() {
+    if (!this.live) return;
+    const ctx = this.ctx, t0 = this.t + 0.004;
+    [0, 7, 12].forEach((semi, i) => {
+      const t = t0 + i * 0.055;
+      const o = this._osc('triangle', 659.25 * Math.pow(2, semi / 12), t);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.08, t + 0.008);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.5);
+      o.connect(g); g.connect(this.dry);
+      const sd = ctx.createGain(); sd.gain.value = 1.2; g.connect(sd); sd.connect(this.send);
+      o.start(t); this._end(o, t + 0.6, [g, sd]);
+    });
+  }
+
+  /* taking one — climbs with each of the three */
+  starTake(n) {
+    if (!this.live) return;
+    const ctx = this.ctx, t0 = this.t + 0.004;
+    const root = 523.25 * Math.pow(2, (n - 1) * 2 / 12);
+    [0, 4, 7, 12, 16].forEach((semi, i) => {
+      const t = t0 + i * 0.045;
+      const o = this._osc(i % 2 ? 'sine' : 'triangle', root * Math.pow(2, semi / 12), t);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.14 / (1 + i * 0.22), t + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 1.4);
+      o.connect(g); g.connect(this.dry);
+      const sd = ctx.createGain(); sd.gain.value = 1.3; g.connect(sd); sd.connect(this.send);
+      o.start(t); this._end(o, t + 1.5, [g, sd]);
+    });
+    const n2 = this._noise(false);
+    const f = ctx.createBiquadFilter();
+    f.type = 'bandpass'; f.Q.value = 2.2;
+    f.frequency.setValueAtTime(1200, t0);
+    f.frequency.exponentialRampToValueAtTime(7000, t0 + 0.4);
+    const ng = ctx.createGain();
+    ng.gain.setValueAtTime(0.0001, t0);
+    ng.gain.exponentialRampToValueAtTime(0.06, t0 + 0.02);
+    ng.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.6);
+    n2.connect(f); f.connect(ng); ng.connect(this.dry);
+    const s2 = ctx.createGain(); s2.gain.value = 1.1; ng.connect(s2); s2.connect(this.send);
+    n2.start(t0); this._end(n2, t0 + 0.7, [f, ng, s2]);
+  }
+
   /* passing safely through a matching hazard */
   phase() {
     if (!this.live) return;

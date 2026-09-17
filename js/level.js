@@ -84,6 +84,19 @@ const HAZ_SPEC = {
   },
 };
 
+/* The rainbow pickup. It accepts ANY colour — that is the whole point of it,
+   and why it is drawn as every colour at once. Three per level, optional,
+   short-lived, and deliberately placed away from the orb so that taking one
+   is a real decision against the orb's own timer. */
+const STAR_SPEC = {
+  fields: {
+    x: { def: 0.5, type: 'unit' },
+    y: { def: 0.5, type: 'unit' },
+    life: { def: 3.2, type: 'sec', min: 1.2, max: 10 },
+    delay: { def: 0.4, type: 'sec', min: 0, max: 12 },
+  },
+};
+
 const ORB_SPEC = {
   fields: {
     color: { def: 0, type: 'color' },
@@ -98,6 +111,7 @@ function blankStep() {
   return {
     orb: { color: 0, x: 0.5, y: 0.5, life: 6 },
     hazards: [],
+    star: null,
   };
 }
 function blankLevel(id, name) {
@@ -131,6 +145,7 @@ function normaliseLevel(raw) {
       o.type = h.type;
       return o;
     }).filter(Boolean).sort((a, b) => a.delay - b.delay),
+    star: (st && st.star) ? fillFields(STAR_SPEC, st.star) : null,
   }));
   if (!L.steps.length) L.steps = [blankStep()];
   return L;
@@ -173,18 +188,28 @@ const LevelStore = {
 
   progress() { return storageGet(this.KEY_PROGRESS, {}); },
   progressFor(id) {
-    return this.progress()[id] || { best: 0, cleared: false, attempts: 0 };
+    const p = this.progress()[id] || {};
+    return {
+      best: p.best || 0, cleared: !!p.cleared, attempts: p.attempts || 0,
+      stars: Array.isArray(p.stars) ? p.stars : [false, false, false],
+    };
   },
-  record(id, percent, cleared) {
+  /* Stars only stick if you finish the level — grabbing one and then dying
+     does not count, which is what makes three stars mean "mastered". */
+  record(id, percent, cleared, starsThisRun) {
     const all = this.progress();
-    const cur = all[id] || { best: 0, cleared: false, attempts: 0 };
+    const cur = this.progressFor(id);
     cur.best = Math.max(cur.best, Math.round(percent));
     cur.cleared = cur.cleared || !!cleared;
-    cur.attempts = (cur.attempts || 0) + 1;
+    cur.attempts = cur.attempts + 1;
+    if (cleared && Array.isArray(starsThisRun)) {
+      cur.stars = cur.stars.map((had, i) => had || !!starsThisRun[i]);
+    }
     all[id] = cur;
     storageSet(this.KEY_PROGRESS, all);
     return cur;
   },
+  starCount(id) { return this.progressFor(id).stars.filter(Boolean).length; },
 
   encode(level) {
     try { return btoa(unescape(encodeURIComponent(JSON.stringify(level)))); }
@@ -236,6 +261,12 @@ class LevelRunner {
        the level was built with, it just arrives while they are on the next
        orb. Otherwise playing well would quietly delete the level. */
     for (const h of st.hazards) this.queue.push({ at: this.t + h.delay, h });
+    if (st.star) {
+      this.queue.push({
+        at: this.t + (st.star.delay || 0),
+        star: { x: this._x(st.star.x), y: this._y(st.star.y), life: st.star.life, index: this.starIndexOf(this.index) },
+      });
+    }
     this.queue.sort((a, b) => a.at - b.at);
     this.g.placeOrb(this._x(st.orb.x), this._y(st.orb.y), st.orb.color, st.orb.life);
   }
@@ -248,10 +279,22 @@ class LevelRunner {
     return false;
   }
 
+  /* which of the three a step's star is, counting from the top of the level */
+  starIndexOf(stepIndex) {
+    let n = 0;
+    for (let i = 0; i < stepIndex; i++) if (this.steps[i].star) n++;
+    return n;
+  }
+  get starTotal() { return this.steps.filter(st => st.star).length; }
+
   update(dt) {
     if (this.index < 0) return;
     this.t += dt;
-    while (this.queue.length && this.queue[0].at <= this.t) this.spawn(this.queue.shift().h);
+    while (this.queue.length && this.queue[0].at <= this.t) {
+      const q = this.queue.shift();
+      if (q.star) this.g.placeStar(q.star.x, q.star.y, q.star.life, q.star.index);
+      else this.spawn(q.h);
+    }
   }
 
   spawn(h) {

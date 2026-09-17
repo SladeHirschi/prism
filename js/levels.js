@@ -14,7 +14,9 @@ const orb = (color, x, y, life) => ({ color, x, y, life: life || 6 });
 const wave = (color, angle, o) => Object.assign({ type: 'wave', color, angle }, o);
 const shard = (color, x, y, angle, o) => Object.assign({ type: 'shard', color, x, y, angle }, o);
 const bloom = (color, x, y, o) => Object.assign({ type: 'bloom', color, x, y }, o);
-const step = (o, hz) => ({ orb: o, hazards: hz || [] });
+const step = (o, hz, st) => ({ orb: o, hazards: hz || [], star: st || null });
+/* a rainbow pickup: x, y, how long it lasts, when it shows up */
+const star = (x, y, life, delay) => ({ x, y, life: life || 3.2, delay: delay || 0.4 });
 
 /* a fan of shards from one edge */
 function volley(color, edge, n, o) {
@@ -47,12 +49,13 @@ const BUILTIN_LEVELS = [
       step(orb(B, 0.5, 0.34, 8), []),
       step(orb(Y, 0.22, 0.66, 8), [wave(Y, 0, { speed: 0.2, delay: 0.6, warn: 1.6 })]),
       step(orb(R, 0.78, 0.3, 8), [wave(R, 180, { speed: 0.2, delay: 0.6, warn: 1.6 })]),
-      step(orb(G, 0.3, 0.72, 7.5), [wave(B, 90, { speed: 0.22, delay: 0.5, warn: 1.5 })]),
+      step(orb(G, 0.3, 0.72, 7.5), [wave(B, 90, { speed: 0.22, delay: 0.5, warn: 1.5 })],
+        star(0.84, 0.2, 3.6, 0.3)),
       step(orb(P, 0.7, 0.5, 7.5), volley(P, 'left', 2, { speed: 0.28, delay: 0.7, warn: 1.2 })),
       step(orb(O, 0.2, 0.3, 7), [
         wave(O, 270, { speed: 0.24, delay: 0.4, warn: 1.4 }),
         ...volley(G, 'right', 2, { speed: 0.3, delay: 1.8, warn: 1.1 }),
-      ]),
+      ], star(0.82, 0.76, 3.4, 0.5)),
       step(orb(B, 0.8, 0.68, 7), [
         wave(R, 45, { speed: 0.26, delay: 0.5, warn: 1.3 }),
         wave(B, 225, { speed: 0.26, delay: 2.2, warn: 1.3 }),
@@ -60,7 +63,7 @@ const BUILTIN_LEVELS = [
       step(orb(Y, 0.5, 0.5, 7), [
         ...volley(Y, 'top', 3, { speed: 0.32, delay: 0.5, warn: 1.1 }),
         wave(G, 135, { speed: 0.28, delay: 2.4, warn: 1.3 }),
-      ]),
+      ], star(0.12, 0.5, 3.2, 0.4)),
     ],
   }),
 
@@ -74,7 +77,8 @@ const BUILTIN_LEVELS = [
         wave(G, 0, { speed: 0.3, delay: 0.4, warn: 1.2 }),
         wave(G, 90, { speed: 0.3, delay: 1.5, warn: 1.2 }),
       ]),
-      step(orb(R, 0.18, 0.24, 6.5), volley(R, 'right', 3, { speed: 0.4, delay: 0.5, warn: 0.9, aim: 'player' })),
+      step(orb(R, 0.18, 0.24, 6.5), volley(R, 'right', 3, { speed: 0.4, delay: 0.5, warn: 0.9, aim: 'player' }),
+        star(0.86, 0.78, 3.2, 0.3)),
       step(orb(Y, 0.82, 0.72, 6.5), [
         wave(B, 180, { speed: 0.32, delay: 0.4, warn: 1.1 }),
         wave(Y, 270, { speed: 0.32, delay: 1.6, warn: 1.1 }),
@@ -84,7 +88,7 @@ const BUILTIN_LEVELS = [
         wave(O, 45, { speed: 0.34, delay: 0.4, warn: 1.0 }),
         wave(O, 225, { speed: 0.34, delay: 1.4, warn: 1.0 }),
         ...volley(B, 'left', 2, { speed: 0.42, delay: 2.6, warn: 0.8, aim: 'player' }),
-      ]),
+      ], star(0.5, 0.14, 3.0, 0.6)),
       step(orb(B, 0.78, 0.34, 6), [
         wave(R, 135, { speed: 0.36, delay: 0.4, warn: 1.0 }),
         wave(G, 315, { speed: 0.36, delay: 1.5, warn: 1.0 }),
@@ -94,7 +98,7 @@ const BUILTIN_LEVELS = [
         wave(P, 90, { speed: 0.38, delay: 0.3, warn: 0.9 }),
         wave(B, 270, { speed: 0.38, delay: 1.1, warn: 0.9 }),
         ...volley(O, 'right', 3, { speed: 0.46, delay: 2.4, warn: 0.8, aim: 'player' }),
-      ]),
+      ], star(0.14, 0.86, 2.9, 0.5)),
       step(orb(Y, 0.5, 0.78, 5.5), [
         wave(R, 0, { speed: 0.42, delay: 0.3, warn: 0.9 }),
         wave(R, 180, { speed: 0.42, delay: 1.2, warn: 0.9 }),
@@ -113,7 +117,7 @@ const BUILTIN_LEVELS = [
       step(orb(Y, 0.2, 0.28, 6), [
         wave(Y, 0, { speed: 0.34, delay: 0.4, warn: 1.0 }),
         bloom(G, 0.5, 0.5, { petals: 10, speed: 0.26, delay: 2.0, warn: 1.2 }),
-      ]),
+      ], star(0.86, 0.74, 3.0, 0.4)),
       step(orb(R, 0.72, 0.36, 5.5), [
         ...volley(R, 'top', 3, { speed: 0.44, delay: 0.4, warn: 0.85, aim: 'player' }),
         wave(O, 90, { speed: 0.36, delay: 2.2, warn: 1.0 }),
@@ -125,7 +129,7 @@ const BUILTIN_LEVELS = [
       step(orb(B, 0.24, 0.52, 5.5), [
         bloom(R, 0.7, 0.28, { petals: 10, color2: G, speed: 0.28, delay: 0.4, warn: 1.1 }),
         ...volley(P, 'left', 4, { speed: 0.46, delay: 2.2, warn: 0.8 }),
-      ]),
+      ], star(0.88, 0.86, 2.8, 0.6)),
       step(orb(O, 0.78, 0.68, 5.5), [
         wave(B, 45, { speed: 0.4, delay: 0.3, warn: 0.9 }),
         wave(B, 225, { speed: 0.4, delay: 1.3, warn: 0.9 }),
@@ -138,7 +142,7 @@ const BUILTIN_LEVELS = [
       step(orb(Y, 0.3, 0.4, 5), [
         bloom(P, 0.5, 0.5, { petals: 14, color2: Y, speed: 0.32, delay: 0.4, warn: 1.1 }),
         wave(Y, 315, { speed: 0.44, delay: 2.4, warn: 0.85 }),
-      ]),
+      ], star(0.86, 0.16, 2.8, 0.5)),
       step(orb(R, 0.7, 0.6, 5), [
         bloom(R, 0.3, 0.7, { petals: 11, speed: 0.3, delay: 0.3, warn: 1.0 }),
         bloom(B, 0.7, 0.3, { petals: 11, speed: 0.3, delay: 1.6, warn: 1.0 }),

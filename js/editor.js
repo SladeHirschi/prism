@@ -229,6 +229,7 @@ class Editor {
     for (const h of this.step.hazards) {
       this.drawHazard(ctx, h, this.sel && this.sel.kind === 'haz' && this.sel.h === h);
     }
+    if (this.step.star) this.drawStar(ctx, this.step.star, this.sel && this.sel.kind === 'star');
     this.drawOrb(ctx, this.step.orb, this.sel && this.sel.kind === 'orb');
 
     if (this.drag && this.drag.kind === 'place') this.drawPlacePreview(ctx);
@@ -279,6 +280,27 @@ class Editor {
     if (selected) {
       ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; ctx.setLineDash([9, 8]);
       ctx.beginPath(); ctx.arc(x, y, 56, 0, TAU); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
+
+  drawStar(ctx, st, selected) {
+    const A = this.g.arena;
+    const x = A.x + st.x * A.w, y = A.y + st.y * A.h;
+    ctx.save();
+    ctx.translate(x, y);
+    for (let i = 0; i < NCOL; i++) {
+      const a0 = i / NCOL * TAU, a1 = (i + 1) / NCOL * TAU + 0.02;
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.arc(0, 0, 24, a0, a1); ctx.closePath();
+      ctx.fillStyle = col(i, 1.05, 0.95); ctx.fill();
+    }
+    ctx.strokeStyle = 'rgba(250,252,255,.95)'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(0, 0, 24, 0, TAU); ctx.stroke();
+    ctx.restore();
+    this.label(ctx, x, y - 48, st.delay.toFixed(1) + 's \u00b7 ' + st.life.toFixed(1) + 's', 2);
+    if (selected) {
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; ctx.setLineDash([9, 8]);
+      ctx.beginPath(); ctx.arc(x, y, 54, 0, TAU); ctx.stroke();
       ctx.setLineDash([]);
     }
   }
@@ -480,6 +502,8 @@ class Editor {
 
   hitArena(wx, wy) {
     const A = this.g.arena;
+    const st = this.step.star;
+    if (st && dist2(wx, wy, A.x + st.x * A.w, A.y + st.y * A.h) < 54 * 54) return { kind: 'star' };
     const o = this.step.orb;
     if (dist2(wx, wy, A.x + o.x * A.w, A.y + o.y * A.h) < 54 * 54) return { kind: 'orb' };
     for (let i = this.step.hazards.length - 1; i >= 0; i--) {
@@ -534,6 +558,23 @@ class Editor {
 
     /* --- arena --- */
     const w = this.toWorld(sx, sy);
+    if (this.tool === 'star') {
+      const A = this.g.arena;
+      this.push();
+      const nx = +clamp((w.x - A.x) / A.w, 0.03, 0.97).toFixed(3);
+      const ny = +clamp((w.y - A.y) / A.h, 0.03, 0.97).toFixed(3);
+      if (this.step.star && dist2(w.x, w.y, A.x + this.step.star.x * A.w, A.y + this.step.star.y * A.h) < 56 * 56) {
+        this.step.star = null;
+        this.sel = null;
+      } else {
+        this.step.star = fillFields(STAR_SPEC, { x: nx, y: ny });
+        this.sel = { kind: 'star' };
+      }
+      this.tool = null;
+      this.syncTools();
+      this.refreshInspector();
+      return;
+    }
     if (this.tool === 'orb') {
       const A = this.g.arena;
       this.push();
@@ -558,6 +599,8 @@ class Editor {
       const A = this.g.arena;
       if (hit.kind === 'orb') {
         this.drag = { kind: 'move-orb', dx: A.x + this.step.orb.x * A.w - w.x, dy: A.y + this.step.orb.y * A.h - w.y };
+      } else if (hit.kind === 'star') {
+        this.drag = { kind: 'move-star', dx: A.x + this.step.star.x * A.w - w.x, dy: A.y + this.step.star.y * A.h - w.y };
       } else if (hit.h.type !== 'wave') {
         this.drag = { kind: 'move', h: hit.h, dx: A.x + hit.h.x * A.w - w.x, dy: A.y + hit.h.y * A.h - w.y };
       }
@@ -574,6 +617,10 @@ class Editor {
     else if (d.kind === 'move') {
       d.h.x = +clamp((w.x + d.dx - A.x) / A.w, -0.12, 1.12).toFixed(3);
       d.h.y = +clamp((w.y + d.dy - A.y) / A.h, -0.12, 1.12).toFixed(3);
+      this.refreshInspector(true);
+    } else if (d.kind === 'move-star' && this.step.star) {
+      this.step.star.x = +clamp((w.x + d.dx - A.x) / A.w, 0.03, 0.97).toFixed(3);
+      this.step.star.y = +clamp((w.y + d.dy - A.y) / A.h, 0.03, 0.97).toFixed(3);
       this.refreshInspector(true);
     } else if (d.kind === 'move-orb') {
       this.step.orb.x = +clamp((w.x + d.dx - A.x) / A.w, 0.03, 0.97).toFixed(3);
@@ -700,9 +747,10 @@ class Editor {
         'orb fades.</p>';
       return;
     }
-    const isOrb = sel.kind === 'orb';
-    const obj = isOrb ? this.step.orb : sel.h;
-    const spec = isOrb ? ORB_SPEC : HAZ_SPEC[sel.h.type];
+    const isOrb = sel.kind === 'orb', isStar = sel.kind === 'star';
+    const obj = isOrb ? this.step.orb : isStar ? this.step.star : sel.h;
+    const spec = isOrb ? ORB_SPEC : isStar ? STAR_SPEC : HAZ_SPEC[sel.h.type];
+    if (!obj) { this.sel = null; return this.refreshInspector(); }
 
     if (valuesOnly && this._for === obj) {
       for (const k in this._inputs) {
@@ -786,7 +834,10 @@ class Editor {
       const del = document.createElement('button');
       del.className = 'edbtn danger';
       del.innerHTML = '<span>Delete</span>';
-      del.addEventListener('click', () => this.deleteSel());
+      del.addEventListener('click', () => {
+        if (isStar) { this.push(); this.step.star = null; this.sel = null; this.refreshInspector(); }
+        else this.deleteSel();
+      });
       U.edInspect.appendChild(del);
     }
   }
