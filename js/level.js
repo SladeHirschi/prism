@@ -299,6 +299,7 @@ class LevelRunner {
 
   spawn(h) {
     const g = this.g;
+    if (CONFIG.noHazards) return;       // building a level: just the route
     const warn = Math.max(0.12, h.warn || 0.8);
     if (h.type === 'wave') {
       g.hazards.push(new Wave(h.color, h.angle * DEG, this._n(h.thickness), this._n(h.speed), warn));

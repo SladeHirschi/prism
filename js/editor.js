@@ -692,6 +692,7 @@ class Editor {
       this.toolBtns[id] = b;
     };
     mk('orb', 'Orb', 'click to move this step’s orb');
+    if (CONFIG.stars) mk('star', 'Rainbow \u2605', 'click to place, click it again to remove');
     mk('wave', 'Wave', 'drag the direction it sweeps');
     mk('shard', 'Shard', 'drag from where it starts');
     mk('bloom', 'Bloom', 'drag out from the centre');

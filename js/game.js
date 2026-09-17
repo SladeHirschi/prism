@@ -791,15 +791,15 @@ class Game {
       const card = document.createElement('button');
       card.className = 'lvl' + (p.cleared ? ' done' : '') + (locked ? ' locked' : '');
       const d = clamp(lv.difficulty, 1, 5);
-      const stars = [0, 1, 2].map(k =>
-        '<i class="' + (p.stars[k] ? 'on' : '') + '"></i>').join('');
+      const stars = CONFIG.stars ? [0, 1, 2].map(k =>
+        '<i class="' + (p.stars[k] ? 'on' : '') + '"></i>').join('') : '';
       card.innerHTML =
         '<img class="thumb" src="' + this.levelThumb(lv, 320, 200) + '" alt="">' +
         '<div class="body">' +
         '<span class="nm">' + lv.name + '</span>' +
         '<div class="sub"><span class="badge d' + d + '">' + names[d] + '</span>' +
         '<span>' + lv.steps.length + ' ORBS</span>' +
-        (nStars ? '<span>' + nStars + ' ★</span>' : '') + '</div>' +
+        (CONFIG.stars && nStars ? '<span>' + nStars + ' ★</span>' : '') + '</div>' +
         '<div class="bar"><span style="width:' + p.best + '%"></span></div>' +
         '<div class="foot"><span class="stars3">' + stars + '</span>' +
         '<span>' + p.best + '%</span></div>' +
@@ -934,6 +934,7 @@ class Game {
   }
 
   placeStar(x, y, life, index) {
+    if (!CONFIG.stars) return;          // switched off: the data stays, it just never spawns
     this.star = new Star(x, y, life, index);
     this.audio.starAppear();
     /* a burst outward so it catches the eye even mid-chaos */
@@ -978,6 +979,7 @@ class Game {
       /* hit-stop, then whatever slow motion the state wants */
       this.freeze = Math.max(0, this.freeze - rdt);
       let ts2 = this.freeze > 0 ? 0.02 : this.timeScale;
+      if (CONFIG.slowmo) ts2 *= 0.5;
       const dt = rdt * ts2;
       this.time += dt;
       this.realTime = (this.realTime || 0) + rdt;
@@ -990,6 +992,7 @@ class Game {
 
   _keys() {
     const I = this.input;
+    if (I.hit('Backquote')) this.toggleDev();
     if (I.hit('KeyM')) {
       const on = this.audio.toggleMute();
       this.music.setMuted(!on);
@@ -1062,7 +1065,7 @@ class Game {
     } else if (I.colorStep) {
       P.setColor(P.colorIndex + I.colorStep, this);
     }
-    if (I.dashPressed && P.tryDash(I.moveX, I.moveY, this)) this.onDash();
+    if (CONFIG.dash && I.dashPressed && P.tryDash(I.moveX, I.moveY, this)) this.onDash();
 
     P.update(dt, { moveX: I.moveX, moveY: I.moveY }, this);
     if (P.justReady) {
@@ -1094,7 +1097,7 @@ class Game {
       if (h.dead || h.state !== 'live') continue;
       const hit = h.hits(P.x, P.y, P.r, this);
       if (!hit) { h.touched = false; continue; }
-      const safe = P.colorIndex === h.ci || P.invuln > 0;
+      const safe = P.colorIndex === h.ci || P.invuln > 0 || CONFIG.invincible;
       if (safe) {
         if (!h.touched) { h.touched = true; this.onPhase(h); }
       } else {
@@ -1230,6 +1233,7 @@ class Game {
 
   die(reason, silent) {
     if (this.state !== 'play') return;
+    if (CONFIG.invincible && !silent) return;
     this.state = 'dying';
     /* pin what this result is about now — starting another run while this
        sequence plays out must not write progress against the new level */
@@ -1313,12 +1317,13 @@ class Game {
       if (this.mode === 'level' && this._resLevel) {
         const pr = LevelStore.record(this._resLevel.id, 100, true, this.runStars);
         const got = this.runStars.filter(Boolean).length;
-        this.ui.wonTitle.textContent = got >= 3 ? 'MASTERED' : this._resLevel.name + ' CLEARED';
-        this.ui.wonCount.textContent = got + ' / 3';
-        this.ui.wonCountLabel.textContent = 'Stars this run';
+        const showS = CONFIG.stars && this.runner && this.runner.starTotal > 0;
+        this.ui.wonTitle.textContent = (showS && got >= 3) ? 'MASTERED' : this._resLevel.name + ' CLEARED';
+        this.ui.wonCount.textContent = showS ? got + ' / 3' : this.runner.total + ' ORBS';
+        this.ui.wonCountLabel.textContent = showS ? 'Stars this run' : 'Cleared';
         this.ui.wonStars.innerHTML = [0, 1, 2].map(i =>
           '<i class="' + (this.runStars[i] ? 'on' : '') + '"></i>').join('');
-        this.ui.wonStars.classList.remove('hidden');
+        this.ui.wonStars.classList.toggle('hidden', !CONFIG.stars);
       } else {
         this.best = Math.max(this.best, this.collected);
         storageSet('prism.best', this.best);
@@ -1459,7 +1464,53 @@ class Game {
   }
 
   /* ----------------------------------------------------------------- ui -- */
+  /* ------------------------------------------------------------- dev -- */
+  buildDevPanel() {
+    const U = this.ui;
+    U.devList.innerHTML = '';
+    let lastGroup = null;
+    for (const m of CONFIG_META) {
+      if (m.group !== lastGroup) {
+        lastGroup = m.group;
+        const g = document.createElement('div');
+        g.className = 'grp';
+        g.textContent = m.group === 'game' ? 'GAME' : 'FOR BUILDING LEVELS';
+        U.devList.appendChild(g);
+      }
+      const lab = document.createElement('label');
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = !!CONFIG[m.key];
+      cb.addEventListener('change', () => DEV.set(m.key, cb.checked));
+      const tx = document.createElement('span');
+      tx.innerHTML = '<span class="tx">' + m.label + '</span>' +
+        '<span class="hn">' + m.hint + '</span>';
+      lab.appendChild(cb); lab.appendChild(tx);
+      U.devList.appendChild(lab);
+    }
+  }
+
+  toggleDev(show) {
+    const on = show === undefined ? !this.ui.dev.classList.contains('on') : show;
+    this.ui.dev.classList.toggle('on', on);
+    if (on) this.buildDevPanel();
+  }
+
+  /* a quiet marker, so a switched-about build is never mistaken for the real one */
+  refreshDevTag() {
+    this.ui.devTag.classList.toggle('on', DEV.modified);
+  }
+
   _bindUI() {
+    this.ui.devReset.addEventListener('click', () => { DEV.reset(); this.buildDevPanel(); });
+    this.ui.devClose.addEventListener('click', () => this.toggleDev(false));
+    DEV.onChange = () => {
+      this.refreshDevTag();
+      if (this.state === 'select') this.buildLevelSelect();
+      if (this.state === 'edit') this.editor.buildPalette();
+      this.updateHUD(true);
+    };
+    this.refreshDevTag();
     this.ui.playBtn.addEventListener('click', () => this.showHowTo());
     this.ui.startBtn.addEventListener('click', () => this.playNext());
     this.ui.toLevelsBtn.addEventListener('click', () => this.showSelect());
@@ -1490,7 +1541,8 @@ class Game {
     const txt = this.collected + ' / ' + TOTAL_ORBS;
     if (force || this._c !== txt) { this._c = txt; U.count.textContent = txt; }
     /* stars picked up so far this run */
-    const showStars = inPlay && this.mode === 'level' && this.runner && this.runner.starTotal > 0;
+    const showStars = CONFIG.stars && inPlay && this.mode === 'level' &&
+      this.runner && this.runner.starTotal > 0;
     U.stars.classList.toggle('visible', showStars);
     if (showStars) {
       const key = this.runStars.join(',');

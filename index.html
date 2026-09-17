@@ -253,6 +253,42 @@
   }
   .lvl.create .body{text-align:center;}
   .lvl.create .big{font-size:26px;color:#8fb9d6;display:block;margin-bottom:.35em;}
+  /* ------------------------------------------------------------- dev -- */
+  #dev{
+    position:absolute;right:18px;top:18px;width:216px;pointer-events:auto;
+    background:rgba(16,17,21,.96);border:1px solid rgba(238,241,246,.16);
+    border-radius:10px;padding:12px 13px 13px;font-family:var(--mono);
+    box-shadow:0 14px 40px rgba(0,0,0,.6);display:none;z-index:40;
+  }
+  #dev.on{display:block;}
+  #dev h4{
+    margin:0 0 2px;font-size:9px;letter-spacing:.3em;color:#8fb9d6;font-weight:700;
+  }
+  #dev .note{font-size:8px;letter-spacing:.14em;color:#6e7486;line-height:1.7;margin:0 0 10px;}
+  #dev .grp{font-size:8px;letter-spacing:.28em;color:#5f6576;margin:12px 0 5px;}
+  #dev label{
+    display:flex;align-items:flex-start;gap:8px;cursor:pointer;
+    padding:6px 6px;border-radius:5px;margin-bottom:2px;
+    transition:background .14s ease;
+  }
+  #dev label:hover{background:rgba(255,255,255,.05);}
+  #dev input{margin:2px 0 0;accent-color:#8fb9d6;cursor:pointer;flex:0 0 auto;}
+  #dev .tx{display:block;font-size:9.5px;letter-spacing:.1em;color:var(--ink);}
+  #dev .hn{display:block;font-size:8px;letter-spacing:.08em;color:#6e7486;margin-top:2px;}
+  #dev .row{display:flex;gap:6px;margin-top:11px;}
+  #dev button{
+    flex:1;cursor:pointer;background:rgba(238,241,246,.06);
+    border:1px solid rgba(238,241,246,.18);color:var(--ink);border-radius:5px;
+    font-family:var(--mono);font-size:8.5px;letter-spacing:.18em;padding:.6em 0;
+  }
+  #dev button:hover{background:rgba(238,241,246,.14);}
+  #devTag{
+    position:absolute;left:50%;bottom:10px;transform:translateX(-50%);
+    font-family:var(--mono);font-size:8px;letter-spacing:.3em;color:#7a6a4e;
+    pointer-events:none;display:none;
+  }
+  #devTag.on{display:block;}
+
   .editlink{
     display:block;margin-top:.8em;text-align:center;
     font-size:8.5px;letter-spacing:.24em;color:#8c93a4;
@@ -397,6 +433,17 @@
     <div id="progRow"><span id="progName">LEVEL</span><span id="progPct">0%</span></div>
   </div>
 
+  <div id="dev">
+    <h4>DEV SWITCHES</h4>
+    <p class="note">` toggles &middot; saved locally</p>
+    <div id="devList"></div>
+    <div class="row">
+      <button id="devReset">RESET</button>
+      <button id="devClose">CLOSE</button>
+    </div>
+  </div>
+  <div id="devTag">DEV SWITCHES ACTIVE &middot; ` TO OPEN</div>
+
   <div id="hud">
     <div id="count">0 / 15</div>
     <div id="countLabel">ORBS</div>
@@ -493,6 +540,7 @@
 </div>
 
 <script src="js/util.js"></script>
+<script src="js/config.js"></script>
 <script src="js/audio.js"></script>
 <script src="js/music.js"></script>
 <script src="js/input.js"></script>
@@ -508,6 +556,8 @@
   const ui = {
     hud: $('hud'), count: $('count'), dash: $('dash'), dashFill: $('dashFill'),
     stars: $('stars'), wonStars: $('wonStars'),
+    dev: $('dev'), devList: $('devList'), devReset: $('devReset'),
+    devClose: $('devClose'), devTag: $('devTag'),
     title: $('title'), playBtn: $('playBtn'), bestLabel: $('bestLabel'),
     howto: $('howto'), startBtn: $('startBtn'), toLevelsBtn: $('toLevelsBtn'),
     select: $('select'), levelGrid: $('levelGrid'), selBackBtn: $('selBackBtn'),
