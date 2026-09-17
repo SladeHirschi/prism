@@ -604,6 +604,7 @@ class Game {
   /* Clone a level into a new custom one and open it. The original is never
      touched, so a built-in stays intact as a reference to compare against. */
   copyToEditor(lv) {
+    if (!CONFIG.editor) return;
     const copy = JSON.parse(JSON.stringify(normaliseLevel(lv)));
     copy.id = 'custom-' + Date.now().toString(36);
     copy.name = (lv.name + ' COPY').slice(0, 24);
@@ -614,6 +615,7 @@ class Game {
   }
 
   openEditor(level) {
+    if (!CONFIG.editor) return;
     this.state = 'edit';
     this.music.stop();
     this.ui.select.classList.add('hidden');
@@ -823,7 +825,7 @@ class Game {
       /* your own levels open straight up; the built-ins can be copied and
          pulled apart, which is the fastest way to learn how one is put
          together without risking the original */
-      if (!locked) {
+      if (!locked && CONFIG.editor) {
         const ed = document.createElement('span');
         const mine = lv.author !== 'built-in';
         ed.className = 'editlink' + (mine ? '' : ' template');
@@ -847,13 +849,15 @@ class Game {
     endless.addEventListener('click', () => this.start());
     grid.appendChild(endless);
 
-    const nw = document.createElement('button');
-    nw.className = 'lvl create';
-    nw.innerHTML = '<div class="body"><span class="big">+</span>' +
-      '<span class="nm">NEW LEVEL</span>' +
-      '<div class="sub" style="justify-content:center"><span>OPEN THE EDITOR</span></div></div>';
-    nw.addEventListener('click', () => this.openEditor(null));
-    grid.appendChild(nw);
+    if (CONFIG.editor) {
+      const nw = document.createElement('button');
+      nw.className = 'lvl create';
+      nw.innerHTML = '<div class="body"><span class="big">+</span>' +
+        '<span class="nm">NEW LEVEL</span>' +
+        '<div class="sub" style="justify-content:center"><span>OPEN THE EDITOR</span></div></div>';
+      nw.addEventListener('click', () => this.openEditor(null));
+      grid.appendChild(nw);
+    }
   }
 
   /* how far through a level you are, measured in the thing you actually do */

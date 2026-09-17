@@ -12,9 +12,17 @@
        DEV.reset()
    ========================================================================== */
 
+/* Bump this when a default changes, so a stored config from before the
+   change is discarded rather than quietly overriding the new default. */
+const CONFIG_VERSION = 2;
+
 const CONFIG_DEFAULTS = {
-  /* the rainbow pickups and the three-star mastery they feed */
-  stars: true,
+  /* the rainbow pickups and the three-star mastery they feed.
+     Built and kept, but out of the game for now. */
+  stars: false,
+  /* the level editor and every way in to it. Same: still here, just not
+     part of the game the player sees. */
+  editor: false,
   /* the dash, in case the simplest version of the game has no verbs but move */
   dash: true,
   /* sound, remembered between visits rather than reset every load */
@@ -27,6 +35,7 @@ const CONFIG_DEFAULTS = {
 
 const CONFIG_META = [
   { key: 'stars', label: 'Rainbow pickups', hint: 'three-star mastery', group: 'game' },
+  { key: 'editor', label: 'Level editor', hint: 'build and edit levels', group: 'game' },
   { key: 'dash', label: 'Dash', hint: 'phase through anything', group: 'game' },
   { key: 'sound', label: 'Sound', hint: 'music and effects', group: 'game' },
   { key: 'invincible', label: 'Invincible', hint: 'nothing can kill you', group: 'dev' },
@@ -34,13 +43,18 @@ const CONFIG_META = [
   { key: 'slowmo', label: 'Half speed', hint: 'read a pattern', group: 'dev' },
 ];
 
-const CONFIG = Object.assign({}, CONFIG_DEFAULTS, storageGet('prism.config', {}));
+const _storedConfig = storageGet('prism.config', null);
+const CONFIG = (_storedConfig && _storedConfig.__v === CONFIG_VERSION)
+  ? Object.assign({}, CONFIG_DEFAULTS, _storedConfig)
+  : Object.assign({}, CONFIG_DEFAULTS);
+CONFIG.__v = CONFIG_VERSION;
 
 const DEV = {
   get(k) { return CONFIG[k]; },
   set(k, v) {
     if (!(k in CONFIG_DEFAULTS)) { console.warn('no such setting:', k); return; }
     CONFIG[k] = !!v;
+    CONFIG.__v = CONFIG_VERSION;
     storageSet('prism.config', CONFIG);
     if (DEV.onChange) DEV.onChange(k, CONFIG[k]);
     return CONFIG[k];
@@ -48,6 +62,7 @@ const DEV = {
   toggle(k) { return DEV.set(k, !CONFIG[k]); },
   reset() {
     Object.assign(CONFIG, CONFIG_DEFAULTS);
+    CONFIG.__v = CONFIG_VERSION;
     storageSet('prism.config', CONFIG);
     if (DEV.onChange) DEV.onChange(null, null);
   },
