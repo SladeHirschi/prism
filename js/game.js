@@ -391,6 +391,11 @@ class Game {
     this.orb = null;
 
     this.state = 'title';
+    this.mode = 'arcade';        // 'arcade' = endless ramp, 'level' = a chart
+    this.runner = null;
+    this.level = null;
+    this.songBeat = 0;
+    this.secPerBeat = 60 / 130;
     this.time = 0;
     this.lastTS = 0;
     this.timeScale = 1;
@@ -455,6 +460,87 @@ class Game {
     this.updateHUD(true);
   }
 
+  allLevels() {
+    return BUILTIN_LEVELS.concat(LevelStore.allCustom());
+  }
+
+  /* linear unlock: clear one to open the next */
+  unlockedCount() {
+    const ls = this.allLevels();
+    let n = 1;
+    for (let i = 0; i < ls.length - 1; i++) {
+      if (LevelStore.progressFor(ls[i].id).cleared) n++; else break;
+    }
+    return Math.min(n, ls.length);
+  }
+
+  /* Start goes straight into the furthest level you have unlocked, so the
+     shortest path from the rules page is still one button to playing. */
+  playNext() {
+    const ls = this.allLevels();
+    const n = this.unlockedCount();
+    const next = ls.slice(0, n).find(l => !LevelStore.progressFor(l.id).cleared) || ls[n - 1];
+    this.startLevel(next);
+  }
+
+  showTitle() {
+    this.state = 'title';
+    this.ui.select.classList.add('hidden');
+    this.ui.howto.classList.add('hidden');
+    this.ui.over.classList.add('hidden');
+    this.ui.won.classList.add('hidden');
+    this.ui.title.classList.remove('hidden');
+  }
+
+  showSelect() {
+    this.state = 'select';
+    this.music.stop();
+    this.ui.title.classList.add('hidden');
+    this.ui.howto.classList.add('hidden');
+    this.ui.over.classList.add('hidden');
+    this.ui.won.classList.add('hidden');
+    this.ui.select.classList.remove('hidden');
+    this.buildLevelSelect();
+  }
+
+  buildLevelSelect() {
+    const grid = this.ui.levelGrid;
+    grid.innerHTML = '';
+    const ls = this.allLevels();
+    const unlocked = this.unlockedCount();
+
+    ls.forEach((lv, i) => {
+      const p = LevelStore.progressFor(lv.id);
+      const locked = i >= unlocked;
+      const card = document.createElement('button');
+      card.className = 'lvl' + (p.cleared ? ' done' : '') + (locked ? ' locked' : '');
+      const dots = Array.from({ length: 5 },
+        (_, d) => '<i class="' + (d < lv.difficulty ? 'on' : '') + '"></i>').join('');
+      card.innerHTML =
+        '<span class="nm">' + (locked ? 'LOCKED' : lv.name) + '</span>' +
+        '<div class="bar"><span style="width:' + (locked ? 0 : p.best) + '%"></span></div>' +
+        '<div class="meta"><span class="diff">' + dots + '</span>' +
+        '<span>' + (locked ? '—' : p.best + '%') + '</span></div>';
+      if (!locked) card.addEventListener('click', () => this.startLevel(lv));
+      grid.appendChild(card);
+    });
+
+    /* the procedural mode lives here too, always available */
+    const card = document.createElement('button');
+    card.className = 'lvl endless';
+    card.innerHTML =
+      '<span class="nm">ENDLESS</span>' +
+      '<div class="bar"><span style="width:' + Math.round(this.best / TOTAL_ORBS * 100) + '%"></span></div>' +
+      '<div class="meta"><span>PROCEDURAL</span><span>' + this.best + ' / ' + TOTAL_ORBS + '</span></div>';
+    card.addEventListener('click', () => this.start());
+    grid.appendChild(card);
+  }
+
+  replay() {
+    if (this.mode === 'level' && this.level) this.startLevel(this.level);
+    else this.start();
+  }
+
   /* a single page of rules, then straight in — retries skip it */
   showHowTo() {
     this.audio.init(); this.audio.resume();
@@ -463,10 +549,31 @@ class Game {
     this.ui.howto.classList.remove('hidden');
   }
 
+  /* the endless ramp */
   start() {
+    this.mode = 'arcade';
+    this.level = null;
+    this.runner = null;
+    this.music.load(getTrack('trailer_2'));
+    this.secPerBeat = this.music.spb;
+    this._begin();
+  }
+
+  /* a designed chart */
+  startLevel(level) {
+    this.mode = 'level';
+    this.level = normaliseLevel(level);
+    this.music.load(getTrack(this.level.track));
+    this.secPerBeat = this.music.spb;
+    this.runner = new LevelRunner(this.level, this);
+    this._begin();
+  }
+
+  _begin() {
     this.audio.init(); this.audio.resume();
     this.ui.howto.classList.add('hidden');
-    /* the track restarts with every run, so the level always opens on bar 1 */
+    this.ui.select.classList.add('hidden');
+    /* the track restarts with every run, so a chart always opens on bar 1 */
     if (this.music.start(true)) this.audio.musicMode = true;
     this.music.duck(1);
     this.resetRun();
@@ -475,8 +582,11 @@ class Game {
     this.ui.over.classList.add('hidden');
     this.ui.won.classList.add('hidden');
     this.ui.title.classList.add('hidden');
-    this.spawnOrb();
+    this.songBeat = this.mode === 'level' ? -(this.level.leadIn || 0) : 0;
+    if (this.runner) this.runner.reset();
+    if (this.mode === 'arcade') this.spawnOrb();
     this.audio.setIntensity(0.1);
+    this.updateHUD(true);
   }
 
   spawnOrb() {
@@ -499,6 +609,14 @@ class Game {
     this.audio.blip(520 + ci * 30, 0.06, 0.18, 'sine');
   }
 
+  /* a chart places its own orbs, at a beat, in a colour, with a lifetime */
+  placeOrb(x, y, ci, lifeSec) {
+    /* only one at a time: a second orb would make "miss it and die" unfair */
+    this.orb = new Orb(x, y, ci, lifeSec);
+    this.fx.ring(x, y, { r0: 8, r1: 80, life: 0.5, ci, width: 3, alpha: 0.6 });
+    this.audio.blip(520 + ci * 30, 0.06, 0.18, 'sine');
+  }
+
   /* --------------------------------------------------------------- loop -- */
   _loop(ts) {
     requestAnimationFrame(this._raf);
@@ -512,6 +630,13 @@ class Game {
     this._keys();
     this.audio.tick();
     this.music.update(rdt);
+
+    /* one continuous beat position, from the track when we have it */
+    if (this.state === 'play') {
+      const mb = this.music.beatFloat();
+      if (mb !== null) { this.songBeat = mb; this.secPerBeat = this.music.spb; }
+      else this.songBeat += (rdt * this.timeScale) / this.secPerBeat;
+    }
 
     if (!this.paused) {
       /* hit-stop, then whatever slow motion the state wants */
@@ -535,8 +660,9 @@ class Game {
       document.body.classList.toggle('muted', !on);
     }
     if (this.state === 'title' && I.confirmPressed) this.showHowTo();
-    if (this.state === 'howto' && I.confirmPressed) this.start();
-    if ((this.state === 'over' || this.state === 'won') && I.confirmPressed) this.start();
+    if (this.state === 'howto' && I.confirmPressed) this.playNext();
+    if (this.state === 'select' && I.padHit(1)) this.showTitle();
+    if ((this.state === 'over' || this.state === 'won') && I.confirmPressed) this.replay();
     if (this.state === 'play') {
       if (I.hit('KeyR') || I.padHit(8)) this.die('RESTARTED', true);
       if (I.hit('Escape', 'KeyP') || I.padHit(9)) this.pause(!this.paused);
@@ -555,7 +681,7 @@ class Game {
     if (this.state === 'play') this.updatePlay(dt);
     else if (this.state === 'dying') this.updateDying(rdt);
     else if (this.state === 'winning') this.updateWinning(rdt);
-    else if (this.state === 'title' || this.state === 'howto') this.updateTitle(dt);
+    else if (this.state === 'title' || this.state === 'howto' || this.state === 'select') this.updateTitle(dt);
 
     for (const h of this.hazards) if (!h.dead) h.update(dt, this);
     for (let i = this.hazards.length - 1; i >= 0; i--) if (this.hazards[i].dead) this.hazards.splice(i, 1);
@@ -606,6 +732,11 @@ class Game {
     if (P.justReady) {
       this.audio.blip(880, 0.05, 0.1, 'sine');
       this.fx.ring(P.x, P.y, { r0: P.half * 2.6, r1: P.half * 1.9, life: 0.28, white: 1, width: 2, alpha: 0.7 });
+    }
+
+    /* ---- the chart ---- */
+    if (this.mode === 'level' && this.runner) {
+      if (this.runner.update(this.songBeat) === 'end') { this.win(); return; }
     }
 
     /* ---- orb ---- */
@@ -688,7 +819,7 @@ class Game {
     const P = this.player, o = this.orb;
     this.collected++;
     this.chain++;
-    this.director.level = this.collected;
+    if (this.mode === 'arcade') this.director.level = this.collected;
 
     this.audio.pickup(this.chain);
     this.shake.add(0.13);
@@ -708,8 +839,10 @@ class Game {
     this.ui.count.classList.add('pulse');
 
     this.orb = null;
-    if (this.collected >= TOTAL_ORBS) { this.win(); return; }
-    this.spawnOrb();
+    if (this.mode === 'arcade') {
+      if (this.collected >= TOTAL_ORBS) { this.win(); return; }
+      this.spawnOrb();
+    }
   }
 
   die(reason, silent) {
@@ -746,10 +879,21 @@ class Game {
     this.vignette = damp(this.vignette, 0.95, 3, rdt);
     if (this.deathT > 1.5 && this.state === 'dying') {
       this.state = 'over';
-      this.best = Math.max(this.best, this.collected);
-      storageSet('prism.best', this.best);
-      this.ui.overCount.textContent = this.collected + ' / ' + TOTAL_ORBS;
-      this.ui.overBest.textContent = this.best + ' / ' + TOTAL_ORBS;
+      if (this.mode === 'level') {
+        const pc = this.runner ? this.runner.percent : 0;
+        const p = LevelStore.record(this.level.id, pc, false);
+        this.ui.overCount.textContent = Math.round(pc) + '%';
+        this.ui.overBest.textContent = p.best + '%';
+        this.ui.overCountLabel.textContent = 'Reached';
+        this.ui.overBestLabel.textContent = 'Best';
+      } else {
+        this.best = Math.max(this.best, this.collected);
+        storageSet('prism.best', this.best);
+        this.ui.overCount.textContent = this.collected + ' / ' + TOTAL_ORBS;
+        this.ui.overBest.textContent = this.best + ' / ' + TOTAL_ORBS;
+        this.ui.overCountLabel.textContent = 'Orbs';
+        this.ui.overBestLabel.textContent = 'Best';
+      }
       this.ui.overWhy.textContent = this.failReason;
       this.ui.over.classList.remove('hidden');
     }
@@ -777,8 +921,18 @@ class Game {
     this.timeScale = lerp(1, 0.25, Ease.outCubic(clamp01(this.deathT / 1.2)));
     if (this.deathT > 1.6 && this.state === 'winning') {
       this.state = 'won';
-      this.best = Math.max(this.best, this.collected);
-      storageSet('prism.best', this.best);
+      if (this.mode === 'level') {
+        LevelStore.record(this.level.id, 100, true);
+        this.ui.wonTitle.textContent = this.level.name + ' CLEARED';
+        this.ui.wonCount.textContent = '100%';
+        this.ui.wonCountLabel.textContent = 'Complete';
+      } else {
+        this.best = Math.max(this.best, this.collected);
+        storageSet('prism.best', this.best);
+        this.ui.wonTitle.textContent = 'CLEARED';
+        this.ui.wonCount.textContent = '15 / 15';
+        this.ui.wonCountLabel.textContent = 'All orbs';
+      }
       this.ui.wonTime.textContent = (this.realTime || 0).toFixed(1) + 's';
       this.ui.won.classList.remove('hidden');
     }
@@ -846,7 +1000,7 @@ class Game {
 
   /* the six wedges, so a stick direction is never a guess */
   _drawWheel(ctx) {
-    if (this.state === 'title' || this.state === 'howto') return;
+    if (this.state === 'title' || this.state === 'howto' || this.state === 'select') return;
     const R = Math.max(42, Math.min(62, this.h * 0.075));
     const cx = this.w - R - 34, cy = this.h - R - 34;
     ctx.save();
@@ -911,9 +1065,13 @@ class Game {
   /* ----------------------------------------------------------------- ui -- */
   _bindUI() {
     this.ui.playBtn.addEventListener('click', () => this.showHowTo());
-    this.ui.startBtn.addEventListener('click', () => this.start());
-    this.ui.retryBtn.addEventListener('click', () => this.start());
-    this.ui.againBtn.addEventListener('click', () => this.start());
+    this.ui.startBtn.addEventListener('click', () => this.playNext());
+    this.ui.toLevelsBtn.addEventListener('click', () => this.showSelect());
+    this.ui.selBackBtn.addEventListener('click', () => this.showTitle());
+    this.ui.retryBtn.addEventListener('click', () => this.replay());
+    this.ui.againBtn.addEventListener('click', () => this.replay());
+    this.ui.overLevelsBtn.addEventListener('click', () => this.showSelect());
+    this.ui.wonLevelsBtn.addEventListener('click', () => this.showSelect());
     this.ui.resumeBtn.addEventListener('click', () => this.pause(false));
     this.ui.bestLabel.textContent = this.best + ' / ' + TOTAL_ORBS;
   }
@@ -922,6 +1080,17 @@ class Game {
     const U = this.ui;
     const inPlay = this.state === 'play' || this.state === 'dying' || this.state === 'winning';
     U.hud.classList.toggle('visible', inPlay);
+
+    /* how far through the chart you are — the thing you actually chase */
+    const showProg = inPlay && this.mode === 'level' && this.runner;
+    U.prog.classList.toggle('visible', showProg);
+    if (showProg) {
+      const pc = this.runner.percent;
+      U.progFill.style.width = pc.toFixed(1) + '%';
+      const t = Math.round(pc) + '%';
+      if (this._pp !== t) { this._pp = t; U.progPct.textContent = t; }
+      if (this._pn !== this.level.name) { this._pn = this.level.name; U.progName.textContent = this.level.name; }
+    }
     const txt = this.collected + ' / ' + TOTAL_ORBS;
     if (force || this._c !== txt) { this._c = txt; U.count.textContent = txt; }
     const dk = this.player.dashReady ? 1 : 1 - this.player.dashCool / this.player.dashCd;

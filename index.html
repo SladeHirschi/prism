@@ -150,6 +150,56 @@
     padding:.25em .55em;margin:0 .15em;letter-spacing:.1em;
   }
 
+  /* ----------------------------------------------------- level select -- */
+  #select .title{font-size:clamp(22px,3.6vw,40px);letter-spacing:.24em;text-indent:.24em;
+    background:linear-gradient(100deg,#c3c9d6,#eef1f6);
+    -webkit-background-clip:text;background-clip:text;color:transparent;}
+  .levels{
+    display:grid;gap:14px;margin-top:2em;
+    grid-template-columns:repeat(auto-fit,minmax(190px,1fr));
+    width:min(720px,88vw);
+  }
+  .lvl{
+    pointer-events:auto;cursor:pointer;text-align:left;
+    background:rgba(238,241,246,.035);border:1px solid rgba(238,241,246,.14);
+    border-radius:8px;padding:1em 1.1em;color:var(--ink);
+    font-family:var(--mono);transition:background .18s ease,border-color .18s ease,transform .1s ease;
+  }
+  .lvl:hover{background:rgba(238,241,246,.08);border-color:rgba(238,241,246,.4);}
+  .lvl:active{transform:translateY(1px);}
+  .lvl.locked{opacity:.35;cursor:not-allowed;}
+  .lvl.locked:hover{background:rgba(238,241,246,.035);border-color:rgba(238,241,246,.14);}
+  .lvl .nm{font-size:13px;letter-spacing:.14em;font-weight:600;display:block;}
+  .lvl .meta{
+    display:flex;justify-content:space-between;align-items:center;
+    margin-top:.9em;font-size:9px;letter-spacing:.2em;color:var(--dim);
+  }
+  .lvl .diff{display:flex;gap:3px;}
+  .lvl .diff i{width:6px;height:6px;border-radius:50%;background:rgba(238,241,246,.2);}
+  .lvl .diff i.on{background:#d98f6f;}
+  .lvl .bar{
+    margin-top:.7em;height:3px;border-radius:2px;background:rgba(255,255,255,.1);overflow:hidden;
+  }
+  .lvl .bar span{display:block;height:100%;border-radius:2px;background:#8fb9d6;}
+  .lvl.done{border-color:rgba(143,201,164,.5);}
+  .lvl.done .bar span{background:#8fc9a4;}
+  .lvl.done .nm::after{content:' ✓';color:#8fc9a4;}
+  .lvl.endless{border-style:dashed;}
+  .lvl.endless .nm::after{content:'';}
+
+  /* ------------------------------------------------- level progress bar -- */
+  #prog{
+    position:absolute;left:50%;top:clamp(12px,2vh,22px);transform:translateX(-50%);
+    width:min(460px,56vw);opacity:0;transition:opacity .4s ease;
+  }
+  #prog.visible{opacity:1;}
+  #progBar{height:5px;border-radius:3px;background:rgba(255,255,255,.1);overflow:hidden;
+    box-shadow:inset 0 0 0 1px rgba(238,241,246,.12);}
+  #progFill{height:100%;width:0%;border-radius:3px;
+    background:linear-gradient(90deg,#8fb9d6,#a98fd0);transition:width .1s linear;}
+  #progRow{display:flex;justify-content:space-between;margin-top:.45em;
+    font-family:var(--mono);font-size:9px;letter-spacing:.24em;color:var(--dim);}
+
   .swatches{display:flex;gap:10px;margin-top:2.4em;}
   .swatches i{
     width:26px;height:26px;border-radius:6px;display:block;
@@ -172,6 +222,11 @@
 </audio>
 
 <div id="ui">
+  <div id="prog">
+    <div id="progBar"><div id="progFill"></div></div>
+    <div id="progRow"><span id="progName">LEVEL</span><span id="progPct">0%</span></div>
+  </div>
+
   <div id="hud">
     <div id="count">0 / 15</div>
     <div id="countLabel">ORBS</div>
@@ -207,6 +262,14 @@
       CONTROLLER &nbsp; <b>L STICK</b> MOVE &nbsp; <b>R STICK</b> POINT AT A COLOUR &nbsp; <b>A</b> DASH
     </div>
     <button class="btn" id="startBtn">Start</button>
+    <button class="btn small" id="toLevelsBtn">All levels</button>
+  </div>
+
+  <!-- ------------------------------------------------- LEVEL SELECT ---- -->
+  <div id="select" class="panel hidden">
+    <h1 class="title">LEVELS</h1>
+    <div class="levels" id="levelGrid"></div>
+    <button class="btn small" id="selBackBtn">Back</button>
   </div>
 
   <!-- ------------------------------------------------------- PAUSE ----- -->
@@ -220,20 +283,22 @@
     <h1 class="title">SHATTERED</h1>
     <div id="overWhy"></div>
     <div class="stats">
-      <div class="stat"><div class="label">Orbs</div><div class="value" id="overCount">0 / 15</div></div>
-      <div class="stat"><div class="label">Best</div><div class="value" id="overBest">0 / 15</div></div>
+      <div class="stat"><div class="label" id="overCountLabel">Orbs</div><div class="value" id="overCount">0 / 15</div></div>
+      <div class="stat"><div class="label" id="overBestLabel">Best</div><div class="value" id="overBest">0 / 15</div></div>
     </div>
     <button class="btn" id="retryBtn">Retry</button>
+    <button class="btn small" id="overLevelsBtn">Levels</button>
   </div>
 
   <!-- --------------------------------------------------------- WON ----- -->
   <div id="won" class="panel hidden">
-    <h1 class="title">CLEARED</h1>
+    <h1 class="title" id="wonTitle">CLEARED</h1>
     <div class="stats">
-      <div class="stat"><div class="label">All orbs</div><div class="value">15 / 15</div></div>
+      <div class="stat"><div class="label" id="wonCountLabel">All orbs</div><div class="value" id="wonCount">15 / 15</div></div>
       <div class="stat"><div class="label">Time</div><div class="value" id="wonTime">0.0s</div></div>
     </div>
     <button class="btn" id="againBtn">Play again</button>
+    <button class="btn small" id="wonLevelsBtn">Levels</button>
   </div>
 </div>
 
@@ -243,6 +308,8 @@
 <script src="js/input.js"></script>
 <script src="js/fx.js"></script>
 <script src="js/hazards.js"></script>
+<script src="js/level.js"></script>
+<script src="js/levels.js"></script>
 <script src="js/game.js"></script>
 <script>
 (function () {
@@ -250,11 +317,16 @@
   const ui = {
     hud: $('hud'), count: $('count'), dash: $('dash'), dashFill: $('dashFill'),
     title: $('title'), playBtn: $('playBtn'), bestLabel: $('bestLabel'),
-    howto: $('howto'), startBtn: $('startBtn'),
+    howto: $('howto'), startBtn: $('startBtn'), toLevelsBtn: $('toLevelsBtn'),
+    select: $('select'), levelGrid: $('levelGrid'), selBackBtn: $('selBackBtn'),
+    prog: $('prog'), progFill: $('progFill'), progName: $('progName'), progPct: $('progPct'),
     pause: $('pause'), resumeBtn: $('resumeBtn'),
     over: $('over'), overCount: $('overCount'), overBest: $('overBest'),
-    overWhy: $('overWhy'), retryBtn: $('retryBtn'),
+    overCountLabel: $('overCountLabel'), overBestLabel: $('overBestLabel'),
+    overWhy: $('overWhy'), retryBtn: $('retryBtn'), overLevelsBtn: $('overLevelsBtn'),
     won: $('won'), wonTime: $('wonTime'), againBtn: $('againBtn'),
+    wonTitle: $('wonTitle'), wonCount: $('wonCount'), wonCountLabel: $('wonCountLabel'),
+    wonLevelsBtn: $('wonLevelsBtn'),
     music: $('music'),
   };
   window.GAME = new Game($('game'), ui);
